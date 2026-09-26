@@ -45,11 +45,15 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     case "SCAN_ACTIVE_TAB":
       return sendToActiveTab({ type: "SCAN_PAGE" });
     case "FOCUS_SEGMENT":
+      return sendToActiveTab(message, (tabId) => chrome.tabs.getZoom(tabId).catch(() => 1).then((zoom) => ({ ...message, zoom })));
     case "APPLY_TRANSLATIONS":
     case "RESTORE_PAGE":
-      return sendToActiveTab(message as unknown as Record<string, unknown>);
+      return sendToActiveTab(message);
     case "CLASSIFY_CANDIDATES":
-      return classifyCandidates(message.segments, message.targetLanguage, message.pageTitle);
+      return classifyCandidates(message.segments, message.targetLanguage, message.pageTitle, {
+        mainContentDetected: message.mainContentDetected ?? false,
+        articleTitle: message.segments.find((segment) => segment.isArticleTitle)?.sourceText ?? "",
+      });
     case "TRANSLATE_SEGMENTS":
       return translateSegments(message.segments, message.targetLanguage);
     case "OPEN_SIDE_PANEL":
@@ -78,11 +82,15 @@ function requireExtensionPage(sender: chrome.runtime.MessageSender): void {
   }
 }
 
-async function sendToActiveTab(message: Record<string, unknown>): Promise<unknown> {
+async function sendToActiveTab(
+  message: object,
+  enrich?: (tabId: number) => Promise<object>,
+): Promise<unknown> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (tab?.id === undefined) throw new Error("アクティブなタブが見つかりません。");
+  const payload = enrich ? await enrich(tab.id) : message;
   try {
-    return await chrome.tabs.sendMessage(tab.id, message);
+    return await chrome.tabs.sendMessage(tab.id, payload);
   } catch {
     throw new Error("このページでは拡張機能を実行できません。通常のWebページでお試しください。");
   }

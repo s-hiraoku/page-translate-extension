@@ -4,6 +4,22 @@ export type Decision = "translate" | "skip" | "review";
 export type SegmentState = "pending" | "translated" | "review" | "skipped" | "error";
 export type DeepLPlan = "free" | "pro";
 
+/** Where a segment sits on the page, as estimated by the content script. */
+export type SegmentRegion =
+  | "main"
+  | "outside"
+  | "unknown"
+  | "header"
+  | "navigation"
+  | "sidebar"
+  | "footer"
+  | "comments"
+  | "related"
+  | "share"
+  | "ad"
+  | "overlay";
+export type SegmentKind = "heading" | "paragraph" | "list-item" | "quote" | "caption" | "table-cell" | "control" | "block";
+
 export interface CandidateSegment {
   id: string;
   order: number;
@@ -11,6 +27,26 @@ export interface CandidateSegment {
   tagName: string;
   sourceText: string;
   sourceHtml: string;
+  region: SegmentRegion;
+  kind: SegmentKind;
+  /** Share of the text that is link text (0–1). */
+  linkDensity: number;
+  isArticleTitle: boolean;
+}
+
+export interface ScanResult {
+  title: string;
+  url: string;
+  segments: CandidateSegment[];
+  /** Whether a main article region could be identified. */
+  mainContentDetected: boolean;
+  /** Candidates dropped locally as site chrome (navigation, ads, footers…). */
+  excludedCount: number;
+}
+
+/** Vertical position of the clicked card, in screen coordinates (DIP). */
+export interface FocusAnchor {
+  screenY: number;
 }
 
 export interface TranslationEntry extends CandidateSegment {
@@ -42,11 +78,11 @@ export type ExtensionMessage =
   | { type: "SAVE_PROVIDER_KEYS"; typesafeApiKey: string; deeplApiKey: string }
   | { type: "CLEAR_PROVIDER_KEYS" }
   | { type: "SCAN_ACTIVE_TAB" }
-  | { type: "CLASSIFY_CANDIDATES"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string }
+  | { type: "CLASSIFY_CANDIDATES"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; mainContentDetected?: boolean }
   | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage }
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
-  | { type: "FOCUS_SEGMENT"; segmentId: string };
+  | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor };
 
 export interface RuntimeError {
   error: string;

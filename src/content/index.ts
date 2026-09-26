@@ -1,4 +1,5 @@
-import type { CandidateSegment, TranslationEntry } from "../shared/types";
+import type { CandidateSegment, FocusAnchor, ScanResult, SegmentRegion, TranslationEntry } from "../shared/types";
+import { classifyRegion, detectMainContent, isHardNoise, linkDensity, segmentKind } from "./main-content";
 
 const BLOCK_SELECTOR = [
   "h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote",
@@ -10,21 +11,31 @@ const EXCLUDED_SELECTOR = [
   "button", "input", "textarea", "select", "[contenteditable='true']",
   "[aria-hidden='true']", "[data-page-translate-ui]",
 ].join(",");
-const originals = new Map<string, { element: HTMLElement; html: string; outline: string; outlineOffset: string }>();
+const originals = new Map<string, { element: HTMLElement; html: string }>();
 const pageElements = new Map<string, HTMLElement>();
 const palette = ["#2368e8", "#d45e24", "#11836a", "#9b52c2", "#b23f58", "#77851b"];
-let connectorLayer: SVGSVGElement | null = null;
-let marker: HTMLSpanElement | null = null;
-let connectorTimer = 0;
-let connectorUpdate: (() => void) | null = null;
+const CONNECTOR_VISIBLE_MS = 3200;
+const CONNECTOR_FADE_MS = 400;
+/** Browser zoom of this tab, provided by the service worker. */
+let tabZoom = 1;
+let focusOverlay: { root: HTMLElement; frame: number; timer: number } | null = null;
+/** Screen Y of the page viewport's top edge, learned from real pointer events. */
+let viewportScreenTop: number | null = null;
+
+window.addEventListener(
+  "pointermove",
+  (event) => {
+    viewportScreenTop = event.screenY - event.clientY * pageZoomFactor();
+  },
+  { passive: true, capture: true },
+);
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (typeof message !== "object" || message === null || !("type" in message)) return;
   const type = (message as { type: string }).type;
 
   if (type === "SCAN_PAGE") {
-    const segments = scanPage();
-    sendResponse({ title: document.title, url: location.href, segments });
+    sendResponse(scanPage());
     return;
   }
   if (type === "APPLY_TRANSLATIONS") {
@@ -38,13 +49,29 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return;
   }
   if (type === "FOCUS_SEGMENT") {
-    const segmentId = (message as unknown as { segmentId: string }).segmentId;
-    sendResponse({ focused: focusSegment(segmentId) });
+    const { segmentId, anchor, zoom } = message as unknown as { segmentId: string; anchor?: FocusAnchor; zoom?: number };
+    if (typeof zoom === "number" && zoom > 0) tabZoom = zoom;
+    sendResponse({ focused: focusSegment(segmentId, anchor) });
   }
 });
 
-function scanPage(): CandidateSegment[] {
+const MAX_SEGMENTS = 120;
+const REGION_LABELS: Partial<Record<SegmentRegion, string>> = {
+  header: "ヘッダー",
+  navigation: "ナビゲーション",
+  sidebar: "サイドバー",
+  footer: "フッター",
+  comments: "コメント",
+  related: "関連記事",
+  share: "共有",
+  ad: "広告",
+  overlay: "ポップアップ",
+  outside: "本文外",
+};
+
+function scanPage(): ScanResult {
   pageElements.clear();
+  const mainContent = detectMainContent();
   const matches = [...document.querySelectorAll<HTMLElement>(BLOCK_SELECTOR)].filter((element) => {
     if (element.closest(EXCLUDED_SELECTOR) || !isVisible(element)) return false;
     const text = normalizeText(element.innerText || element.textContent || "");
@@ -70,23 +97,45 @@ function scanPage(): CandidateSegment[] {
     const text = normalizeText(element.innerText || element.textContent || "");
     return text.length >= 2 && text.length <= 180 && /[\p{L}\p{N}]/u.test(text);
   });
-  const selected = [...selectedBlocks, ...fallbackBlocks, ...controls].sort((left, right) => {
-    const relation = left.compareDocumentPosition(right);
-    return relation & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : relation & Node.DOCUMENT_POSITION_PRECEDING ? 1 : 0;
+  const selected = [...selectedBlocks, ...fallbackBlocks, ...controls].sort(byDocumentOrder);
+
+  // Classify every candidate and drop obvious site chrome before anything leaves the page.
+  let excludedCount = 0;
+  const hasMainRoot = mainContent.root !== null;
+  let classified = selected.flatMap((element) => {
+    const region = classifyRegion(element, mainContent);
+    const kind = segmentKind(element);
+    const density = linkDensity(element);
+    if (isHardNoise(region, kind, density, hasMainRoot)) {
+      excludedCount += 1;
+      return [];
+    }
+    return [{ element, region, kind, density }];
   });
+  if (classified.length > MAX_SEGMENTS) {
+    // Keep the article first, then whatever else fits, and restore document order.
+    const rank = (region: SegmentRegion) => (region === "main" ? 0 : region === "unknown" ? 1 : 2);
+    const kept = [...classified].sort((left, right) => rank(left.region) - rank(right.region)).slice(0, MAX_SEGMENTS);
+    excludedCount += classified.length - kept.length;
+    classified = kept.sort((left, right) => byDocumentOrder(left.element, right.element));
+  }
 
   const headingContext: string[] = [];
   let bodyIndex = 0;
-  return selected.map((element, order) => {
+  const segments = classified.map(({ element, region, kind, density }, order): CandidateSegment => {
     const text = normalizeText(element.innerText || element.textContent || "");
     const id = `segment-${order + 1}`;
-    if (element.matches("h1,h2,h3,h4,h5,h6")) {
-      headingContext.length = 0;
-      headingContext.push(text.slice(0, 48));
+    const isArticleTitle = mainContent.title === element;
+    if (kind === "heading") {
+      if (region === "main") {
+        headingContext.length = 0;
+        headingContext.push(text.slice(0, 48));
+      }
     } else {
       bodyIndex += 1;
     }
-    const locationLabel = element.matches("h1")
+    const regionLabel = REGION_LABELS[region];
+    const baseLabel = isArticleTitle
       ? "記事タイトル"
       : element.matches("blockquote")
         ? `引用 ${bodyIndex}`
@@ -94,19 +143,36 @@ function scanPage(): CandidateSegment[] {
           ? `リンク ${bodyIndex}`
           : element.matches("button,[role='button']")
             ? `ボタン ${bodyIndex}`
-        : headingContext.length > 0
-          ? `${headingContext.at(-1)} · ${element.tagName.toLowerCase()} ${bodyIndex}`
-          : `${element.tagName === "LI" ? "リスト" : "本文"} ${bodyIndex}`;
+            : region === "main" && headingContext.length > 0
+              ? `${headingContext.at(-1)} · ${element.tagName.toLowerCase()} ${bodyIndex}`
+              : `${element.tagName === "LI" ? "リスト" : kind === "heading" ? "見出し" : "本文"} ${bodyIndex}`;
     pageElements.set(id, element);
     return {
       id,
       order,
-      location: locationLabel,
+      location: regionLabel ? `${regionLabel} · ${baseLabel}` : baseLabel,
       tagName: element.tagName.toLowerCase(),
       sourceText: text,
       sourceHtml: sanitizeTranslatedHtml(element.innerHTML),
+      region,
+      kind,
+      linkDensity: Math.round(density * 100) / 100,
+      isArticleTitle,
     };
   });
+
+  return {
+    title: document.title,
+    url: location.href,
+    segments,
+    mainContentDetected: hasMainRoot,
+    excludedCount,
+  };
+}
+
+function byDocumentOrder(left: Node, right: Node): number {
+  const relation = left.compareDocumentPosition(right);
+  return relation & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : relation & Node.DOCUMENT_POSITION_PRECEDING ? 1 : 0;
 }
 
 function collectAncestorsWithMatches<T extends HTMLElement>(elements: T[], matched: Set<T>): Set<T> {
@@ -149,12 +215,7 @@ function applyTranslations(entries: TranslationEntry[]): number {
     const element = pageElements.get(entry.id);
     if (!element?.isConnected) continue;
     if (!originals.has(entry.id)) {
-      originals.set(entry.id, {
-        element,
-        html: element.innerHTML,
-        outline: element.style.outline,
-        outlineOffset: element.style.outlineOffset,
-      });
+      originals.set(entry.id, { element, html: element.innerHTML });
     }
     element.innerHTML = sanitizeTranslatedHtml(entry.translatedHtml);
     applied += 1;
@@ -166,80 +227,151 @@ function restoreOriginalPage(): void {
   for (const saved of originals.values()) {
     if (!saved.element.isConnected) continue;
     saved.element.innerHTML = saved.html;
-    saved.element.style.outline = saved.outline;
-    saved.element.style.outlineOffset = saved.outlineOffset;
   }
   originals.clear();
-  clearConnector();
+  clearFocusOverlay();
 }
 
-function focusSegment(id: string): boolean {
+/** Ratio between screen DIPs and CSS pixels of this page (browser zoom). */
+function pageZoomFactor(): number {
+  return tabZoom;
+}
+
+/**
+ * Converts the card's screen position into this page's viewport coordinates.
+ * The side panel and the page share the same screen, so aligning in screen space
+ * lets the connector end exactly at the height of the clicked card.
+ */
+function anchorToClientY(anchor: FocusAnchor | undefined): number | null {
+  if (!anchor || !Number.isFinite(anchor.screenY)) return null;
+  const zoom = pageZoomFactor();
+  const top = viewportScreenTop ?? window.screenY + (window.outerHeight - window.innerHeight * zoom);
+  const y = (anchor.screenY - top) / zoom;
+  return Number.isFinite(y) ? y : null;
+}
+
+function focusSegment(id: string, anchor?: FocusAnchor): boolean {
   const element = pageElements.get(id);
   if (!element?.isConnected) return false;
-  element.scrollIntoView({
-    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-    block: "center",
-  });
-  clearTimeout(connectorTimer);
-  clearConnector();
+  clearFocusOverlay();
+
+  const margin = 16;
+  const requestedY = anchorToClientY(anchor);
+  const targetY = clamp(requestedY ?? window.innerHeight / 2, margin, window.innerHeight - margin);
+  const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Bring the source next to the card: its anchor line should sit at the card's height.
+  if (hasScrollableAncestor(element)) {
+    element.scrollIntoView({ behavior: "instant", block: "center" });
+  }
+  const delta = anchorY(element.getBoundingClientRect()) - targetY;
+  if (Math.abs(delta) > 2) window.scrollBy({ top: delta, behavior: smooth ? "smooth" : "instant" });
 
   const color = palette[(Number(id.replace("segment-", "")) - 1) % palette.length] ?? palette[0];
-  marker = document.createElement("span");
-  marker.dataset.pageTranslateUi = "true";
+  const root = document.createElement("div");
+  root.dataset.pageTranslateUi = "true";
+  root.setAttribute("aria-hidden", "true");
+  Object.assign(root.style, {
+    position: "fixed", inset: "0", zIndex: "2147483646", pointerEvents: "none",
+    transition: `opacity ${CONNECTOR_FADE_MS}ms ease`, opacity: "1",
+  });
+
+  // Highlight box drawn over the source element (does not touch page styles).
+  const box = document.createElement("div");
+  Object.assign(box.style, {
+    position: "fixed", boxSizing: "border-box", borderRadius: "6px",
+    border: `2px solid ${color}`, background: `${color}14`, boxShadow: `0 0 0 4px ${color}22`,
+  });
+  const marker = document.createElement("span");
   marker.textContent = id.replace("segment-", "");
   Object.assign(marker.style, {
-    position: "fixed", zIndex: "2147483647", width: "1.45rem", height: "1.45rem",
-    display: "grid", placeItems: "center", borderRadius: "50%", color: "white",
-    background: color, font: "600 0.75rem/1 system-ui", boxShadow: "0 1px 6px #0003",
-    pointerEvents: "none",
+    position: "fixed", minWidth: "1.45rem", height: "1.45rem", padding: "0 .3rem", boxSizing: "border-box",
+    display: "grid", placeItems: "center", borderRadius: "999px", color: "white",
+    background: color, font: "600 12px/1 system-ui, sans-serif", boxShadow: "0 1px 6px #0003",
   });
-  document.documentElement.append(marker);
 
-  connectorLayer = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  connectorLayer.dataset.pageTranslateUi = "true";
-  connectorLayer.setAttribute("aria-hidden", "true");
-  Object.assign(connectorLayer.style, {
-    position: "fixed", inset: "0", width: "100vw", height: "100vh",
-    zIndex: "2147483646", overflow: "visible", pointerEvents: "none",
-  });
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  Object.assign(svg.style, { position: "fixed", inset: "0", width: "100vw", height: "100vh", overflow: "visible" });
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path.setAttribute("fill", "none");
   path.setAttribute("stroke", color);
   path.setAttribute("stroke-width", "2.5");
   path.setAttribute("stroke-linecap", "round");
-  path.setAttribute("stroke-dasharray", "5 5");
-  connectorLayer.append(path);
-  document.documentElement.append(connectorLayer);
+  path.setAttribute("stroke-dasharray", "6 5");
+  const start = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  start.setAttribute("r", "3.5");
+  start.setAttribute("fill", color);
+  const end = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  end.setAttribute("r", "5");
+  end.setAttribute("fill", color);
+  svg.append(path, start, end);
+  root.append(box, svg, marker);
+  document.documentElement.append(root);
 
-  const update = () => {
+  const draw = () => {
+    if (!element.isConnected) return clearFocusOverlay();
     const rect = element.getBoundingClientRect();
-    const x1 = Math.max(8, Math.min(window.innerWidth - 12, rect.right));
-    const y1 = Math.max(8, Math.min(window.innerHeight - 12, rect.top + Math.min(rect.height / 2, 26)));
-    const x2 = window.innerWidth - 3;
-    path.setAttribute("d", `M ${x1} ${y1} C ${x1 + 42} ${y1}, ${x2 - 42} ${y1}, ${x2} ${y1}`);
-    if (marker) {
-      marker.style.left = `${Math.max(4, x1 - 12)}px`;
-      marker.style.top = `${y1 - 12}px`;
-    }
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const pad = 4;
+    Object.assign(box.style, {
+      left: `${rect.left - pad}px`, top: `${rect.top - pad}px`,
+      width: `${rect.width + pad * 2}px`, height: `${rect.height + pad * 2}px`,
+    });
+    marker.style.left = `${clamp(rect.left - pad - 10, 2, viewportWidth - 28)}px`;
+    marker.style.top = `${clamp(rect.top - pad - 10, 2, window.innerHeight - 26)}px`;
+
+    const x2 = viewportWidth - 1;
+    const x1 = clamp(rect.right + pad, 8, x2 - 24);
+    const y1 = clamp(anchorY(rect), 8, window.innerHeight - 8);
+    const y2 = targetY;
+    const bend = Math.max(24, (x2 - x1) / 2);
+    path.setAttribute("d", `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`);
+    start.setAttribute("cx", String(x1));
+    start.setAttribute("cy", String(y1));
+    end.setAttribute("cx", String(x2));
+    end.setAttribute("cy", String(y2));
   };
-  requestAnimationFrame(update);
-  connectorUpdate = update;
-  window.addEventListener("scroll", update, { passive: true });
-  window.addEventListener("resize", update, { passive: true });
-  connectorTimer = window.setTimeout(clearConnector, 1800);
+
+  // Redraw every frame: smooth scrolling, nested scrollers and layout shifts all move the source.
+  const state = { root, frame: 0, timer: 0 };
+  const loop = () => {
+    draw();
+    state.frame = requestAnimationFrame(loop);
+  };
+  loop();
+  state.timer = window.setTimeout(() => {
+    root.style.opacity = "0";
+    state.timer = window.setTimeout(clearFocusOverlay, CONNECTOR_FADE_MS);
+  }, CONNECTOR_VISIBLE_MS);
+  focusOverlay = state;
   return true;
 }
 
-function clearConnector(): void {
-  if (connectorUpdate) {
-    window.removeEventListener("scroll", connectorUpdate);
-    window.removeEventListener("resize", connectorUpdate);
+/** The point on the source that the connector attaches to (first line of text). */
+function anchorY(rect: DOMRect): number {
+  return rect.top + Math.min(rect.height / 2, 14);
+}
+
+function hasScrollableAncestor(element: HTMLElement): boolean {
+  let parent = element.parentElement;
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const overflow = getComputedStyle(parent).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && parent.scrollHeight > parent.clientHeight) return true;
+    parent = parent.parentElement;
   }
-  connectorUpdate = null;
-  connectorLayer?.remove();
-  marker?.remove();
-  connectorLayer = null;
-  marker = null;
+  return false;
+}
+
+function clearFocusOverlay(): void {
+  if (!focusOverlay) return;
+  cancelAnimationFrame(focusOverlay.frame);
+  clearTimeout(focusOverlay.timer);
+  focusOverlay.root.remove();
+  focusOverlay = null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
 function sanitizeTranslatedHtml(html: string): string {

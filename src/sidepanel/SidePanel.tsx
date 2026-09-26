@@ -1,21 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type {
   CandidateSegment,
   Decision,
   DisplayMode,
   ExtensionMessage,
   ExtensionSettings,
+  FocusAnchor,
+  ScanResult,
   SegmentState,
   TargetLanguage,
   TranslationEntry,
 } from "../shared/types";
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, SETTINGS_KEY } from "../shared/types";
-
-interface ScanResult {
-  title: string;
-  url: string;
-  segments: CandidateSegment[];
-}
 
 interface DecisionResult {
   decisions: Array<{ id: string; decision: Decision; confidence: number }>;
@@ -30,6 +26,11 @@ interface ProviderStatus {
 }
 
 const colors = ["#2368e8", "#d45e24", "#11836a", "#9b52c2", "#b23f58", "#77851b"];
+
+/** Screen Y of the side panel viewport's top edge, learned from pointer events. */
+let panelScreenTop: number | null = null;
+window.addEventListener("pointermove", (event) => { panelScreenTop = event.screenY - event.clientY; }, { passive: true });
+window.addEventListener("pointerdown", (event) => { panelScreenTop = event.screenY - event.clientY; }, { passive: true });
 
 export function SidePanel() {
   const [settings, setSettings] = useState<ExtensionSettings>(DEFAULT_SETTINGS);
@@ -93,12 +94,14 @@ export function SidePanel() {
         return;
       }
 
-      setStatus(`${page.segments.length}件の候補をJevが確認しています…`);
+      const excludedNote = page.excludedCount > 0 ? `（本文外の${page.excludedCount}件は除外）` : "";
+      setStatus(`${page.segments.length}件の候補をJevが確認しています…${excludedNote}`);
       const classifications = await sendMessage<DecisionResult>({
         type: "CLASSIFY_CANDIDATES",
         segments: page.segments,
         targetLanguage: settings.targetLanguage,
         pageTitle: page.title,
+        mainContentDetected: page.mainContentDetected,
       });
       const byId = new Map(classifications.decisions.map((decision) => [decision.id, decision]));
       const next: TranslationEntry[] = page.segments.map((segment) => {
@@ -183,10 +186,16 @@ export function SidePanel() {
     setStatus(`ページ内に${result.applied}件を表示しています。`);
   }
 
-  async function focusEntry(entry: TranslationEntry): Promise<void> {
+  async function focusEntry(entry: TranslationEntry, event: ReactMouseEvent<HTMLElement>): Promise<void> {
     setSelectedId(entry.id);
+    setError("");
     try {
-      await sendMessage({ type: "FOCUS_SEGMENT", segmentId: entry.id });
+      const result = await sendMessage<{ focused: boolean }>({
+        type: "FOCUS_SEGMENT",
+        segmentId: entry.id,
+        anchor: cardAnchor(event),
+      });
+      if (!result?.focused) setError("ページが変わったため原文の位置が見つかりません。もう一度翻訳してください。");
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -340,7 +349,7 @@ export function SidePanel() {
             {entries.map((entry) => (
               <li key={entry.id}>
                 <article className={`entry-card ${selectedId === entry.id ? "selected" : ""} ${entry.state}`} style={{ "--entry-color": colors[entry.order % colors.length] } as React.CSSProperties}>
-                  <button className="entry-main" type="button" onClick={() => void focusEntry(entry)} aria-label={`${entry.location}の原文位置へ移動`}>
+                  <button className="entry-main" type="button" onClick={(event) => void focusEntry(entry, event)} aria-label={`${entry.location}の原文位置へ移動`}>
                     <span className="entry-topline">
                       <span className="entry-number">{String(entry.order + 1).padStart(2, "0")}</span>
                       <span className="entry-location">{entry.location}</span>
@@ -408,6 +417,19 @@ async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {
     throw new Error(response.error);
   }
   return response as T;
+}
+
+/**
+ * Screen position of the clicked card's first line. The content script aligns the
+ * source text and the end of the connector to this height.
+ */
+function cardAnchor(event: ReactMouseEvent<HTMLElement>): FocusAnchor | undefined {
+  const card = event.currentTarget.closest<HTMLElement>(".entry-card") ?? event.currentTarget;
+  const rect = card.getBoundingClientRect();
+  // Real clicks carry screen coordinates; keyboard activation reports 0/0.
+  const top = event.detail > 0 ? event.screenY - event.clientY : panelScreenTop;
+  if (top === null) return undefined;
+  return { screenY: top + rect.top + Math.min(rect.height / 2, 22) };
 }
 
 function stateLabel(state: SegmentState): string {

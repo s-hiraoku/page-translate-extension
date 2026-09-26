@@ -32,6 +32,7 @@ export async function classifyCandidates(
   segments: CandidateSegment[],
   targetLanguage: TargetLanguage,
   pageTitle = "",
+  pageInfo: { mainContentDetected: boolean; articleTitle: string } = { mainContentDetected: false, articleTitle: "" },
 ): Promise<DecisionResult> {
   const { typesafeApiKey } = await readProviderKeys();
   if (!typesafeApiKey) throw new Error("設定画面でTypeSafe JevのAPIキーを登録してください。");
@@ -42,15 +43,42 @@ export async function classifyCandidates(
     const state = {
       target_language: targetLanguage === "JA" ? "Japanese" : "English",
       page_title: pageTitle.slice(0, 200),
-      candidates: batch.map(({ id, location, tagName, sourceText }) => ({ id, location, element: tagName, text: sourceText })),
+      task: "Select only the page's main article content for translation. Site chrome and peripheral content must be skipped.",
+      main_content_detected: pageInfo.mainContentDetected,
+      article_title: pageInfo.articleTitle.slice(0, 200),
+      region_legend: {
+        main: "inside the detected main article container",
+        outside: "outside the main article container (not a known landmark)",
+        unknown: "main article container could not be detected",
+        header: "site header / masthead", navigation: "menus, breadcrumbs, pagination", sidebar: "sidebar or widget",
+        footer: "site footer", comments: "user comment area", related: "related / recommended / popular article lists",
+        share: "share or follow prompts", ad: "advertising", overlay: "cookie banner, newsletter prompt, modal",
+      },
+      candidates: batch.map((segment) => ({
+        id: segment.id,
+        location: segment.location,
+        element: segment.tagName,
+        kind: segment.kind,
+        region: segment.region,
+        is_article_title: segment.isArticleTitle,
+        link_density: segment.linkDensity,
+        text: segment.sourceText,
+      })),
     };
     const questions = Object.fromEntries(batch.map((segment, index) => [`candidate_${index + 1}`, {
       type: "choice",
-      instructions: `Classify candidate ${index + 1} (id ${segment.id}) for translation into the requested target language. Choose translate for visible human-readable page content that should be translated; skip for code, navigation controls, identifiers, names, or text already in the target language; choose review when the decision is ambiguous.`,
+      instructions: [
+        `Decide whether candidate ${index + 1} (id ${segment.id}) belongs to the main article of this page and should be translated into the target language.`,
+        "Translate the article title, its headings, and body text (paragraphs, list items, quotes, figure captions, table cells) that a reader of the article would want translated.",
+        "Skip site chrome and peripheral content: navigation, menus, headers/footers, sidebars, related or recommended article lists, ads, share/follow prompts, cookie or newsletter notices, comment sections, bylines/dates/tag lists/read-time metadata, author bio boxes, and standalone link or button labels.",
+        "Also skip code, identifiers, URLs, proper names alone, and text already written in the target language.",
+        "Use region, is_article_title, kind and link_density as structural evidence (region 'main' and low link_density strongly suggest article content; high link_density suggests link lists), but let the text itself decide when the evidence conflicts.",
+        "Choose review only when the text is genuinely ambiguous, e.g. mixed-language or context-dependent.",
+      ].join(" "),
       criteria: {
-        translate: "Meaningful visible prose or a heading in another language that a reader would want translated.",
-        skip: "A username, URL, code, control label, decorative text, or content already written in the target language.",
-        review: "Mixed-language or context-dependent text where automatic inclusion could change meaning or create a false translation.",
+        translate: "Part of the main article: title, heading or body text in a language other than the target language.",
+        skip: "Not part of the main article (navigation, sidebar, footer, related links, ads, prompts, metadata, controls), or code/identifiers, or already in the target language.",
+        review: "Plausibly article content but ambiguous: mixed-language or context-dependent text where automatic inclusion could change meaning.",
       },
     }]));
 
