@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.output/
+coverage/
+.env
+.env.*
+!.env.example
+.page-translate-secrets.json
+.page-translate-secrets.json.tmp
+.DS_Store

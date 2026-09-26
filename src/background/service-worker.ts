@@ -1,0 +1,93 @@
+import type {
+  ExtensionMessage,
+  RuntimeError,
+} from "../shared/types";
+import { DEFAULT_SETTINGS, PROVIDER_KEYS_KEY, SETTINGS_KEY } from "../shared/types";
+import { classifyCandidates, clearProviderKeys, providerStatus, saveProviderKeys, translateSegments } from "./providers";
+
+const storageReady = restrictStorageToExtensionPages();
+
+chrome.runtime.onInstalled.addListener(() => {
+  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  void storageReady.then(() => chrome.storage.local.get(SETTINGS_KEY)).then((stored) => {
+    if (!stored[SETTINGS_KEY]) {
+      return chrome.storage.local.set({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+    }
+    return undefined;
+  });
+});
+
+void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+chrome.runtime.onMessage.addListener((rawMessage: unknown, sender, sendResponse) => {
+  if (!isExtensionMessage(rawMessage)) return;
+
+  void handleMessage(rawMessage, sender)
+    .then(sendResponse)
+    .catch((error: unknown) => {
+      sendResponse({ error: error instanceof Error ? error.message : "Request failed." } satisfies RuntimeError);
+    });
+  return true;
+});
+
+async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.MessageSender): Promise<unknown> {
+  await storageReady;
+  switch (message.type) {
+    case "CHECK_PROVIDERS":
+      requireExtensionPage(sender);
+      return providerStatus();
+    case "SAVE_PROVIDER_KEYS":
+      requireExtensionPage(sender);
+      return saveProviderKeys(message.typesafeApiKey, message.deeplApiKey);
+    case "CLEAR_PROVIDER_KEYS":
+      requireExtensionPage(sender);
+      return clearProviderKeys();
+    case "SCAN_ACTIVE_TAB":
+      return sendToActiveTab({ type: "SCAN_PAGE" });
+    case "FOCUS_SEGMENT":
+    case "APPLY_TRANSLATIONS":
+    case "RESTORE_PAGE":
+      return sendToActiveTab(message as unknown as Record<string, unknown>);
+    case "CLASSIFY_CANDIDATES":
+      return classifyCandidates(message.segments, message.targetLanguage, message.pageTitle);
+    case "TRANSLATE_SEGMENTS":
+      return translateSegments(message.segments, message.targetLanguage);
+    case "OPEN_SIDE_PANEL":
+      return undefined;
+  }
+}
+
+async function restrictStorageToExtensionPages(): Promise<void> {
+  await Promise.all([
+    chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
+    chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
+  ]);
+  const [session, local] = await Promise.all([
+    chrome.storage.session.get(PROVIDER_KEYS_KEY),
+    chrome.storage.local.get(PROVIDER_KEYS_KEY),
+  ]);
+  if (!session[PROVIDER_KEYS_KEY] && local[PROVIDER_KEYS_KEY]) {
+    await chrome.storage.session.set({ [PROVIDER_KEYS_KEY]: local[PROVIDER_KEYS_KEY] });
+  }
+  await chrome.storage.local.remove(PROVIDER_KEYS_KEY);
+}
+
+function requireExtensionPage(sender: chrome.runtime.MessageSender): void {
+  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(""))) {
+    throw new Error("この操作は拡張機能の設定画面から実行してください。");
+  }
+}
+
+async function sendToActiveTab(message: Record<string, unknown>): Promise<unknown> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tab?.id === undefined) throw new Error("アクティブなタブが見つかりません。");
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    throw new Error("このページでは拡張機能を実行できません。通常のWebページでお試しください。");
+  }
+}
+
+function isExtensionMessage(value: unknown): value is ExtensionMessage {
+  return typeof value === "object" && value !== null && "type" in value;
+}

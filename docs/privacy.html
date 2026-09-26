@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Page Translate Chrome extension privacy policy">
+  <title>Page Translate — Privacy Policy</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1d2939; background: #f5f7fa; }
+    body { max-width: 780px; margin: 0 auto; padding: 42px 22px 72px; }
+    main { padding: 34px clamp(20px, 5vw, 48px); border: 1px solid #e1e6ed; border-radius: 18px; background: white; box-shadow: 0 8px 36px #16243a0b; }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 5vw, 38px); letter-spacing: -.04em; }
+    h2 { margin: 34px 0 10px; font-size: 21px; letter-spacing: -.025em; }
+    h3 { margin: 22px 0 6px; font-size: 16px; }
+    p, li { color: #4b596b; }
+    a { color: #245fc7; }
+    .eyebrow { color: #748196; font-size: 12px; font-weight: 700; letter-spacing: .14em; }
+    .updated { margin: 0 0 28px; color: #778396; font-size: 14px; }
+    .rule { height: 1px; margin: 44px 0; border: 0; background: #e5e9ef; }
+    code { padding: 2px 5px; border-radius: 4px; background: #f0f3f8; font-size: .9em; }
+    footer { margin-top: 38px; padding-top: 18px; border-top: 1px solid #e5e9ef; color: #778396; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">PAGE TRANSLATE</p>
+    <h1>プライバシーポリシー</h1>
+    <p class="updated">最終更新日：2026年9月26日</p>
+
+    <p>Page Translateは、利用者が翻訳を開始したときに、表示中のページから文章を抽出して英語と日本語の翻訳を行うChrome拡張機能です。このポリシーでは、拡張機能が扱う情報、送信先、保存期間を説明します。</p>
+
+    <h2>扱う情報と利用目的</h2>
+    <ul>
+      <li><strong>ページ情報：</strong>利用者が翻訳を開始したとき、ページの文章、ページタイトル、文章の位置情報を翻訳対象の判定と表示に使います。ページのURLはサイドパネルに表示しますが、APIリクエストの本文には含めません。</li>
+      <li><strong>APIキー：</strong>利用者が設定画面に入力したTypeSafe JevとDeepLのAPIキーを、それぞれのサービスへの認証に使います。</li>
+      <li><strong>設定：</strong>翻訳先言語、表示モード、DeepL APIプラン、初回のデータ送信への同意を拡張機能内に保存します。</li>
+      <li><strong>翻訳結果：</strong>サイドパネル表示と、利用者が選んだ場合のページ内表示に使います。</li>
+    </ul>
+
+    <h2>送信先と共有</h2>
+    <p>翻訳を開始すると、抽出した候補文章、文章の位置情報、ページタイトル、翻訳先言語がTypeSafe JevへHTTPSで送信されます。Jevが翻訳対象に選んだ文章だけがDeepLへHTTPSで送信されます。APIキーは各サービスへの認証情報として各サービスに直接送信されます。</p>
+    <p>Page Translateの開発者が運営する中継サーバーはありません。開発者はページ文章、APIキー、翻訳結果を受信・保存せず、広告、分析、プロファイリングにも利用しません。TypeSafe JevおよびDeepLによる情報の処理は、それぞれの利用条件とプライバシーポリシーに従います。</p>
+    <ul>
+      <li><a href="https://typesafe.ai/legal/privacy-policy">TypeSafe AI プライバシーポリシー</a></li>
+      <li><a href="https://www.deepl.com/en/privacy">DeepL プライバシーポリシー</a></li>
+    </ul>
+
+    <h2>保存と削除</h2>
+    <ul>
+      <li>APIキーはChromeのセッションストレージにだけ保存します。Chromeの再起動、拡張機能の無効化・再読み込み・更新で消去されます。設定画面の「保存中のAPIキーを削除」からも消去できます。</li>
+      <li>翻訳設定と同意状態はこのChromeプロファイルの拡張機能ストレージに保存され、Chrome Syncには送信しません。</li>
+      <li>ページ文章と翻訳結果は拡張機能の永続ストレージには保存しません。サイドパネル内の結果はパネルを閉じると失われます。ページ内モードでページに適用した訳文は、原文に戻すかページを再読み込みするまで、そのページ上に表示されます。</li>
+      <li>拡張機能を削除すると、拡張機能が保存した設定と同意状態も削除されます。</li>
+    </ul>
+
+    <h2>利用者による操作</h2>
+    <p>翻訳を始める前に、文章とAPIキーがどのサービスへ送られるかを拡張機能内で表示します。利用者が「同意して翻訳を始める」を選ぶまで、ページ文章を抽出・送信しません。翻訳機能を使わず、翻訳設定を変更したり、APIキーを削除したりできます。</p>
+
+    <h2>ポリシーの変更</h2>
+    <p>データの扱いを変更するときは、このページと拡張機能内の説明を更新します。重要な変更がある場合は、変更後のデータ処理を始める前に拡張機能内で案内します。</p>
+
+    <h2>お問い合わせ</h2>
+    <p>プライバシーに関するお問い合わせは、<a href="https://github.com/s-hiraoku/page-translate-extension/issues">GitHubのIssue</a>からお送りください。Issueは公開されます。APIキー、ページ本文、個人情報を投稿しないでください。</p>
+
+    <hr class="rule">
+
+    <p class="eyebrow">ENGLISH</p>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: September 26, 2026</p>
+    <p>Page Translate is a Chrome extension that extracts text from the page you are viewing when you start a translation. It translates between English and Japanese. This policy explains what the extension handles, where information is sent, and how long it is kept.</p>
+
+    <h2>Information and purpose</h2>
+    <ul>
+      <li><strong>Page information:</strong> When you start a translation, the extension uses page text, the page title, and text-location details to select and display translations. The page URL is shown in the side panel but is not included in API request bodies.</li>
+      <li><strong>API keys:</strong> TypeSafe Jev and DeepL keys that you enter are used to authenticate requests to those services.</li>
+      <li><strong>Settings:</strong> The target language, display mode, DeepL API plan, and your first-use data-sharing consent are stored by the extension.</li>
+      <li><strong>Translations:</strong> Results are used in the side panel and, if you choose, on the page itself.</li>
+    </ul>
+
+    <h2>Recipients and sharing</h2>
+    <p>When you start a translation, candidate page text, text-location details, the page title, and the target language are sent to TypeSafe Jev over HTTPS. Only text Jev selects for translation is sent to DeepL over HTTPS. API keys are sent directly to each service for authentication.</p>
+    <p>Page Translate has no developer-operated relay server. The developer does not receive or store page text, API keys, or translations, and does not use them for advertising, analytics, or profiling. TypeSafe Jev and DeepL process information under their respective terms and privacy policies.</p>
+    <ul>
+      <li><a href="https://typesafe.ai/legal/privacy-policy">TypeSafe AI Privacy Policy</a></li>
+      <li><a href="https://www.deepl.com/en/privacy">DeepL Privacy Policy</a></li>
+    </ul>
+
+    <h2>Storage and deletion</h2>
+    <ul>
+      <li>API keys are kept only in Chrome session storage. They are cleared when Chrome restarts or when the extension is disabled, reloaded, or updated. You can also remove them from Settings.</li>
+      <li>Translation settings and consent state are stored in this Chrome profile and are not sent through Chrome Sync.</li>
+      <li>Page text and translations are not written to persistent extension storage. Side panel results disappear when the panel closes. Translations applied in page mode remain in that page until you restore the original text or reload the page.</li>
+      <li>Removing the extension deletes its stored settings and consent state.</li>
+    </ul>
+
+    <h2>Your choice</h2>
+    <p>Before translation begins, the extension explains which services receive page text and API keys. It does not extract or send page text until you select “Agree and translate.” You can change settings or remove API keys without using translation.</p>
+
+    <h2>Policy changes</h2>
+    <p>If data practices change, this page and the in-extension disclosure will be updated. For material changes, the extension will explain the new processing before it begins.</p>
+
+    <h2>Contact</h2>
+    <p>For privacy questions, use <a href="https://github.com/s-hiraoku/page-translate-extension/issues">GitHub Issues</a>. Issues are public. Do not post API keys, page text, or personal information.</p>
+
+    <footer>Page Translate · <a href="https://github.com/s-hiraoku/page-translate-extension">Project home</a></footer>
+  </main>
+</body>
+</html>
