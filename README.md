@@ -30,6 +30,10 @@ npm run zip
 
 `npm run zip` は `.output/page-translate-v<version>-chrome.zip` を作成します。ZIPを開いたとき、`manifest.json` が直下にある構成です。開発中は `dist` を `chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」から読み込みます。
 
+`main` への push では、GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をアーティファクトとして残します。アーティファクト名は ZIP のファイル名と同じです（例: `page-translate-v0.1.0-chrome.zip`）。
+
+プライバシーポリシーは [`docs/privacy.html`](docs/privacy.html) を GitHub Pages で公開します。公開 URL は https://s-hiraoku.github.io/page-translate-extension/privacy.html です。
+
 ## 権限
 
 - `sidePanel`：翻訳結果と設定をChromeサイドパネルに表示します。
@@ -39,4 +43,4 @@ npm run zip
 
 ## プライバシー
 
-詳細は [`docs/privacy.html`](docs/privacy.html) を参照してください。提出時はこのページを公開し、そのURLをChrome Web Storeのプライバシーポリシー欄に登録します。
+詳細は [`docs/privacy.html`](docs/privacy.html) を参照してください。提出時は上の公開 URL を確認し、Chrome Web Store のプライバシーポリシー欄に登録します。
