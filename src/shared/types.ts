@@ -17,7 +17,8 @@ export type SegmentRegion =
   | "related"
   | "share"
   | "ad"
-  | "overlay";
+  | "overlay"
+  | "meta";
 export type SegmentKind = "heading" | "paragraph" | "list-item" | "quote" | "caption" | "table-cell" | "control" | "block";
 
 export interface CandidateSegment {
@@ -82,7 +83,8 @@ export type ExtensionMessage =
   | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage }
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
-  | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor };
+  | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string }
+  | { type: "UPDATE_FOCUS_ANCHOR"; anchor: FocusAnchor };
 
 export interface RuntimeError {
   error: string;

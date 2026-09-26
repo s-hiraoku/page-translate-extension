@@ -9,16 +9,18 @@ const CONTROL_SELECTOR = "a,button,[role='button'],label";
 const EXCLUDED_SELECTOR = [
   "script", "style", "noscript", "template", "svg", "canvas", "pre", "code",
   "button", "input", "textarea", "select", "[contenteditable='true']",
-  "[aria-hidden='true']", "[data-page-translate-ui]",
+  "[aria-hidden='true']", "[hidden]", "[inert]", "[data-page-translate-ui]", "dialog:not([open])",
+  ".sr-only", ".visually-hidden", ".screen-reader-text", "[role='tooltip']", "[role='search']",
 ].join(",");
 const originals = new Map<string, { element: HTMLElement; html: string }>();
 const pageElements = new Map<string, HTMLElement>();
 const palette = ["#2368e8", "#d45e24", "#11836a", "#9b52c2", "#b23f58", "#77851b"];
-const CONNECTOR_VISIBLE_MS = 3200;
-const CONNECTOR_FADE_MS = 400;
+/** How long to redraw every frame after focusing, so the connector follows smooth scrolling. */
+const CONNECTOR_SETTLE_MS = 1200;
 /** Browser zoom of this tab, provided by the service worker. */
 let tabZoom = 1;
-let focusOverlay: { root: HTMLElement; frame: number; timer: number } | null = null;
+/** The connector stays until another segment is focused, the page is restored, or Esc is pressed. */
+let focusOverlay: { root: HTMLElement; frame: number; dispose: () => void; retarget: (anchor: FocusAnchor) => void } | null = null;
 /** Screen Y of the page viewport's top edge, learned from real pointer events. */
 let viewportScreenTop: number | null = null;
 
@@ -49,9 +51,18 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return;
   }
   if (type === "FOCUS_SEGMENT") {
-    const { segmentId, anchor, zoom } = message as unknown as { segmentId: string; anchor?: FocusAnchor; zoom?: number };
+    const { segmentId, anchor, zoom, label, color } = message as unknown as {
+      segmentId: string; anchor?: FocusAnchor; zoom?: number; label?: string; color?: string;
+    };
     if (typeof zoom === "number" && zoom > 0) tabZoom = zoom;
-    sendResponse({ focused: focusSegment(segmentId, anchor) });
+    sendResponse({ focused: focusSegment(segmentId, anchor, { label, color }) });
+    return;
+  }
+  if (type === "UPDATE_FOCUS_ANCHOR") {
+    // The side panel scrolled: keep the connector's end on the card.
+    const { anchor } = message as unknown as { anchor: FocusAnchor };
+    focusOverlay?.retarget(anchor);
+    sendResponse({ updated: focusOverlay !== null });
   }
 });
 
@@ -66,6 +77,7 @@ const REGION_LABELS: Partial<Record<SegmentRegion, string>> = {
   share: "共有",
   ad: "広告",
   overlay: "ポップアップ",
+  meta: "メタ情報",
   outside: "本文外",
 };
 
@@ -106,7 +118,8 @@ function scanPage(): ScanResult {
     const region = classifyRegion(element, mainContent);
     const kind = segmentKind(element);
     const density = linkDensity(element);
-    if (isHardNoise(region, kind, density, hasMainRoot)) {
+    const text = normalizeText(element.innerText || element.textContent || "");
+    if (isHardNoise(region, kind, density, hasMainRoot, text)) {
       excludedCount += 1;
       return [];
     }
@@ -250,14 +263,14 @@ function anchorToClientY(anchor: FocusAnchor | undefined): number | null {
   return Number.isFinite(y) ? y : null;
 }
 
-function focusSegment(id: string, anchor?: FocusAnchor): boolean {
+function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: string; color?: string } = {}): boolean {
   const element = pageElements.get(id);
   if (!element?.isConnected) return false;
   clearFocusOverlay();
 
   const margin = 16;
   const requestedY = anchorToClientY(anchor);
-  const targetY = clamp(requestedY ?? window.innerHeight / 2, margin, window.innerHeight - margin);
+  let targetY = clamp(requestedY ?? window.innerHeight / 2, margin, window.innerHeight - margin);
   const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Bring the source next to the card: its anchor line should sit at the card's height.
@@ -267,13 +280,14 @@ function focusSegment(id: string, anchor?: FocusAnchor): boolean {
   const delta = anchorY(element.getBoundingClientRect()) - targetY;
   if (Math.abs(delta) > 2) window.scrollBy({ top: delta, behavior: smooth ? "smooth" : "instant" });
 
-  const color = palette[(Number(id.replace("segment-", "")) - 1) % palette.length] ?? palette[0];
+  const color = appearance.color && /^#[0-9a-f]{6}$/i.test(appearance.color)
+    ? appearance.color
+    : palette[(Number(id.replace("segment-", "")) - 1) % palette.length] ?? palette[0];
   const root = document.createElement("div");
   root.dataset.pageTranslateUi = "true";
   root.setAttribute("aria-hidden", "true");
   Object.assign(root.style, {
     position: "fixed", inset: "0", zIndex: "2147483646", pointerEvents: "none",
-    transition: `opacity ${CONNECTOR_FADE_MS}ms ease`, opacity: "1",
   });
 
   // Highlight box drawn over the source element (does not touch page styles).
@@ -283,7 +297,7 @@ function focusSegment(id: string, anchor?: FocusAnchor): boolean {
     border: `2px solid ${color}`, background: `${color}14`, boxShadow: `0 0 0 4px ${color}22`,
   });
   const marker = document.createElement("span");
-  marker.textContent = id.replace("segment-", "");
+  marker.textContent = (appearance.label ?? id.replace("segment-", "")).slice(0, 4);
   Object.assign(marker.style, {
     position: "fixed", minWidth: "1.45rem", height: "1.45rem", padding: "0 .3rem", boxSizing: "border-box",
     display: "grid", placeItems: "center", borderRadius: "999px", color: "white",
@@ -332,17 +346,37 @@ function focusSegment(id: string, anchor?: FocusAnchor): boolean {
     end.setAttribute("cy", String(y2));
   };
 
-  // Redraw every frame: smooth scrolling, nested scrollers and layout shifts all move the source.
-  const state = { root, frame: 0, timer: 0 };
+  // Follow the source while the page settles (smooth scrolling), then redraw only when
+  // something can move it: scrolling (including nested scrollers) and resizes.
+  const state = { root, frame: 0, dispose: () => undefined as void, retarget: (_anchor: FocusAnchor) => undefined as void };
+  const settleUntil = performance.now() + CONNECTOR_SETTLE_MS;
   const loop = () => {
     draw();
-    state.frame = requestAnimationFrame(loop);
+    state.frame = performance.now() < settleUntil ? requestAnimationFrame(loop) : 0;
+  };
+  const schedule = () => {
+    if (state.frame === 0) state.frame = requestAnimationFrame(() => { state.frame = 0; draw(); });
+  };
+  const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") clearFocusOverlay(); };
+  const resize = new ResizeObserver(schedule);
+  resize.observe(element);
+  resize.observe(document.documentElement);
+  window.addEventListener("scroll", schedule, { passive: true, capture: true });
+  window.addEventListener("resize", schedule, { passive: true });
+  window.addEventListener("keydown", onKey, true);
+  state.retarget = (next) => {
+    const y = anchorToClientY(next);
+    if (y === null) return;
+    targetY = clamp(y, margin, window.innerHeight - margin);
+    schedule();
+  };
+  state.dispose = () => {
+    resize.disconnect();
+    window.removeEventListener("scroll", schedule, { capture: true });
+    window.removeEventListener("resize", schedule);
+    window.removeEventListener("keydown", onKey, true);
   };
   loop();
-  state.timer = window.setTimeout(() => {
-    root.style.opacity = "0";
-    state.timer = window.setTimeout(clearFocusOverlay, CONNECTOR_FADE_MS);
-  }, CONNECTOR_VISIBLE_MS);
   focusOverlay = state;
   return true;
 }
@@ -365,7 +399,7 @@ function hasScrollableAncestor(element: HTMLElement): boolean {
 function clearFocusOverlay(): void {
   if (!focusOverlay) return;
   cancelAnimationFrame(focusOverlay.frame);
-  clearTimeout(focusOverlay.timer);
+  focusOverlay.dispose();
   focusOverlay.root.remove();
   focusOverlay = null;
 }
