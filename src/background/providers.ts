@@ -38,12 +38,21 @@ export async function classifyCandidates(
   if (!typesafeApiKey) throw new Error("設定画面でTypeSafe JevのAPIキーを登録してください。");
   validateSegments(segments);
 
+  // Landing and product pages have no article: their content is short headlines and
+  // taglines. Asking Jev for "the main article" there makes nearly every answer "review".
+  const proseCount = segments.filter((segment) => segment.kind === "paragraph" && segment.sourceText.length >= 120).length;
+  const pageKind = proseCount >= 3 ? "article" : "landing";
+  const task = pageKind === "article"
+    ? "Select the page's main article content for translation. Site chrome and peripheral content must be skipped."
+    : "This is a landing or product page without a long article. Select its visible content for translation: headlines, taglines, feature names and descriptions, and body copy. Site chrome must be skipped.";
+
   const decisions: DecisionResult["decisions"] = [];
   for (const batch of batchByCountAndSize(segments, 16, 22_000, (item) => item.sourceText.length)) {
     const state = {
       target_language: targetLanguage === "JA" ? "Japanese" : "English",
       page_title: pageTitle.slice(0, 200),
-      task: "Select only the page's main article content for translation. Site chrome and peripheral content must be skipped.",
+      task,
+      page_kind: pageKind,
       main_content_detected: pageInfo.mainContentDetected,
       article_title: pageInfo.articleTitle.slice(0, 200),
       region_legend: {
@@ -68,12 +77,13 @@ export async function classifyCandidates(
     const questions = Object.fromEntries(batch.map((segment, index) => [`candidate_${index + 1}`, {
       type: "choice",
       instructions: [
-        `Decide whether candidate ${index + 1} (id ${segment.id}) belongs to the main article of this page and should be translated into the target language.`,
-        "Translate the article title, its headings, and body text (paragraphs, list items, quotes, figure captions, table cells) that a reader of the article would want translated.",
+        `Decide whether candidate ${index + 1} (id ${segment.id}) is content of this page that a reader would want translated into the target language.`,
+        "Translate the article title, its headings, and body text (paragraphs, list items, quotes, figure captions, table cells).",
+        "On a landing or product page (page_kind 'landing'), short headlines, taglines and feature labels such as 'Fewer Collisions' or 'Makes every drive easier' are content: translate them; being short is not a reason for review.",
         "Skip site chrome and peripheral content: navigation, menus, headers/footers, sidebars, related or recommended article lists, ads, share/follow prompts, cookie or newsletter notices, comment sections, bylines/dates/tag lists/read-time metadata, author bio boxes, and standalone link or button labels.",
-        "Also skip code, identifiers, URLs, proper names alone, and text already written in the target language.",
+        "Also skip code, identifiers, URLs, proper names or product names alone (e.g. 'Model Y'), numbers alone, and text already written in the target language.",
         "Use region, is_article_title, kind and link_density as structural evidence (region 'main' and low link_density strongly suggest article content; high link_density suggests link lists), but let the text itself decide when the evidence conflicts.",
-        "Choose review only when the text is genuinely ambiguous, e.g. mixed-language or context-dependent.",
+        "Choose review only when the text is genuinely ambiguous, e.g. mixed-language. When unsure between translate and skip for readable natural-language text, choose translate.",
       ].join(" "),
       criteria: {
         translate: "Part of the main article: title, heading or body text in a language other than the target language.",
@@ -94,7 +104,9 @@ export async function classifyCandidates(
       const choice = answer?.choice;
       const confidence = Number(answer?.confidence ?? 0);
       const decision: Decision = choice === "translate" || choice === "skip" || choice === "review" ? choice : "review";
-      decisions.push({ id: segment.id, decision: confidence < 0.62 ? "review" : decision, confidence });
+      // An unsure "skip" may hide content, so it becomes review (translated and flagged).
+      // An unsure "translate" stays translate.
+      decisions.push({ id: segment.id, decision: decision === "skip" && confidence < 0.62 ? "review" : decision, confidence });
     });
   }
   return { decisions };

@@ -218,12 +218,9 @@ export function SidePanel() {
       const byId = new Map(classifications.decisions.map((decision) => [decision.id, decision]));
       const next: TranslationEntry[] = candidates.map((segment) => {
         const decision = byId.get(segment.id);
-        const state: SegmentState = decision?.decision === "skip" ? "skipped" : decision?.decision === "translate" ? "pending" : "review";
-        return {
-          ...segment,
-          state,
-          reason: state === "review" ? "Jevの判定を確認してください。" : undefined,
-        };
+        // Jev's "review" means plausible content: translate it too, and flag it on the card.
+        const state: SegmentState = decision?.decision === "skip" ? "skipped" : "pending";
+        return { ...segment, state, uncertain: decision?.decision !== "translate" && state === "pending" };
       });
       setEntries(next);
       const pending = next.filter((entry) => entry.state === "pending");
@@ -521,6 +518,9 @@ export function SidePanel() {
                           <span className="entry-number">{index + 1}</span>
                           <span className="entry-location">{entry.location}</span>
                           {entry.state !== "translated" && <span className={`badge ${entry.state}`}>{stateLabel(entry.state)}</span>}
+                          {entry.state === "translated" && entry.uncertain && (
+                            <span className="badge review" title="Jevの判定があいまいだったため、自動で翻訳しました">要確認</span>
+                          )}
                         </span>
                         {entry.state === "translated" ? (
                           <span className="entry-translation">{entry.translatedText}</span>

@@ -56,6 +56,8 @@ export interface TranslationEntry extends CandidateSegment {
   translatedText?: string;
   translatedHtml?: string;
   reason?: string;
+  /** Jev answered "review": translated automatically, flagged in the panel. */
+  uncertain?: boolean;
 }
 
 export interface ExtensionSettings {
