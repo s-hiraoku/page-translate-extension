@@ -219,7 +219,10 @@ export function SidePanel() {
       const next: TranslationEntry[] = candidates.map((segment) => {
         const decision = byId.get(segment.id);
         // Jev's "review" means plausible content: translate it too, and flag it on the card.
-        const state: SegmentState = decision?.decision === "skip" ? "skipped" : "pending";
+        // A "skip" on a readable sentence of the main content, still in the source
+        // language, is more likely a misjudged page type than chrome: translate and flag it.
+        const skipped = decision?.decision === "skip" && !isMainProse(segment, settings.targetLanguage);
+        const state: SegmentState = skipped ? "skipped" : "pending";
         return { ...segment, state, uncertain: decision?.decision !== "translate" && state === "pending" };
       });
       setEntries(next);
@@ -626,6 +629,18 @@ function isInTargetLanguage(text: string, target: TargetLanguage): boolean {
   const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
   const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
   return japanese > 0 && latin / (japanese + latin) < 0.3;
+}
+
+function isMainProse(segment: CandidateSegment, target: TargetLanguage): boolean {
+  if (segment.region !== "main" || segment.kind === "heading" || segment.kind === "control") return false;
+  const text = segment.sourceText;
+  if (text.length < 60 || segment.linkDensity >= 0.5 || !/[.!?。！？]/.test(text)) return false;
+  const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
+  const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
+  const letters = japanese + latin;
+  if (letters === 0) return false;
+  // Only override when the text is clearly in the other language of the pair.
+  return target === "JA" ? latin / letters > 0.7 : japanese / letters > 0.3;
 }
 
 function stateLabel(state: SegmentState): string {
