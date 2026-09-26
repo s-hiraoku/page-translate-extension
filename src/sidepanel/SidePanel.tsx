@@ -12,6 +12,7 @@ import type {
   TranslationEntry,
 } from "../shared/types";
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, SETTINGS_KEY } from "../shared/types";
+import { Icon } from "./Icon";
 
 interface DecisionResult {
   decisions: Array<{ id: string; decision: Decision; confidence: number }>;
@@ -25,7 +26,7 @@ interface ProviderStatus {
   providers: { jev: boolean; deepl: boolean };
 }
 
-const colors = ["#2368e8", "#d45e24", "#11836a", "#9b52c2", "#b23f58", "#77851b"];
+const colors = ["#2c5cf0", "#e0702a", "#0f8a6c", "#9150c8", "#c23d5f", "#6f8517"];
 
 /** Screen Y of the side panel viewport's top edge, learned from pointer events. */
 let panelScreenTop: number | null = null;
@@ -47,6 +48,28 @@ export function SidePanel() {
   const [deeplApiKey, setDeeplApiKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
+  /** Candidates the page scan or the local language check dropped before Jev saw them. */
+  const [droppedCount, setDroppedCount] = useState(0);
+
+  // Keep the page connector attached to the selected card while the panel scrolls or resizes.
+  useEffect(() => {
+    if (!selectedId) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const card = document.querySelector<HTMLElement>(`[data-entry-id="${selectedId}"]`);
+      const anchor = card ? anchorFor(card, panelScreenTop) : undefined;
+      if (anchor) void sendMessage({ type: "UPDATE_FOCUS_ANCHOR", anchor }).catch(() => undefined);
+    };
+    const schedule = () => { if (frame === 0) frame = requestAnimationFrame(update); };
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [selectedId]);
 
   useEffect(() => {
     void chrome.storage.local.get(SETTINGS_KEY).then((stored) => {
@@ -56,7 +79,10 @@ export function SidePanel() {
     });
   }, []);
 
-  const translatedCount = useMemo(() => entries.filter((entry) => entry.state === "translated").length, [entries]);
+  // Jev's "skip" decisions are not part of the article: they never appear in the list.
+  const visibleEntries = useMemo(() => entries.filter((entry) => entry.state !== "skipped"), [entries]);
+  const hiddenCount = droppedCount + entries.length - visibleEntries.length;
+  const translatedCount = useMemo(() => visibleEntries.filter((entry) => entry.state === "translated").length, [visibleEntries]);
 
   async function persistSettings(next: ExtensionSettings): Promise<void> {
     setSettings(next);
@@ -82,6 +108,7 @@ export function SidePanel() {
     setBusy(true);
     setError("");
     setEntries([]);
+    setDroppedCount(0);
     setSelectedId(null);
     setStatus("ページの文章を調べています…");
     try {
@@ -89,22 +116,23 @@ export function SidePanel() {
       const page = await sendMessage<ScanResult>({ type: "SCAN_ACTIVE_TAB" });
       setPageTitle(page.title);
       setPageUrl(new URL(page.url).hostname);
-      if (page.segments.length === 0) {
-        setStatus("翻訳できる文章が見つかりませんでした。");
+      const candidates = page.segments.filter((segment) => !isInTargetLanguage(segment.sourceText, settings.targetLanguage));
+      setDroppedCount(page.excludedCount + page.segments.length - candidates.length);
+      if (candidates.length === 0) {
+        setStatus("翻訳が必要な本文が見つかりませんでした。");
         return;
       }
 
-      const excludedNote = page.excludedCount > 0 ? `（本文外の${page.excludedCount}件は除外）` : "";
-      setStatus(`${page.segments.length}件の候補をJevが確認しています…${excludedNote}`);
+      setStatus(`本文の${candidates.length}件をJevが確認しています…`);
       const classifications = await sendMessage<DecisionResult>({
         type: "CLASSIFY_CANDIDATES",
-        segments: page.segments,
+        segments: candidates,
         targetLanguage: settings.targetLanguage,
         pageTitle: page.title,
         mainContentDetected: page.mainContentDetected,
       });
       const byId = new Map(classifications.decisions.map((decision) => [decision.id, decision]));
-      const next: TranslationEntry[] = page.segments.map((segment) => {
+      const next: TranslationEntry[] = candidates.map((segment) => {
         const decision = byId.get(segment.id);
         const state: SegmentState = decision?.decision === "skip" ? "skipped" : decision?.decision === "translate" ? "pending" : "review";
         return {
@@ -114,11 +142,11 @@ export function SidePanel() {
         };
       });
       setEntries(next);
-      const candidates = next.filter((entry) => entry.state === "pending");
-      if (candidates.length > 0) {
-        setStatus(`${candidates.length}件を翻訳しています…`);
+      const pending = next.filter((entry) => entry.state === "pending");
+      if (pending.length > 0) {
+        setStatus(`${pending.length}件を翻訳しています…`);
         try {
-          const translated = await requestTranslations(candidates);
+          const translated = await requestTranslations(pending);
           for (const result of translated) {
             const entry = next.find((item) => item.id === result.id);
             if (entry) Object.assign(entry, result, { state: "translated", reason: undefined });
@@ -126,7 +154,7 @@ export function SidePanel() {
         } catch (caught) {
           const message = errorMessage(caught);
           setError(message);
-          for (const entry of candidates) {
+          for (const entry of pending) {
             const current = next.find((item) => item.id === entry.id);
             if (current) Object.assign(current, { state: "review", reason: "翻訳に失敗しました。再試行できます。" });
           }
@@ -135,7 +163,8 @@ export function SidePanel() {
 
       const finalEntries = [...next];
       setEntries(finalEntries);
-      setStatus(`${finalEntries.filter((entry) => entry.state !== "skipped").length}件を確認できます。`);
+      const shown = finalEntries.filter((entry) => entry.state !== "skipped").length;
+      setStatus(shown > 0 ? `本文の${shown}件を表示しています。` : "翻訳が必要な本文が見つかりませんでした。");
       if (settings.displayMode === "inline") await applyInline(finalEntries);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -186,7 +215,7 @@ export function SidePanel() {
     setStatus(`ページ内に${result.applied}件を表示しています。`);
   }
 
-  async function focusEntry(entry: TranslationEntry, event: ReactMouseEvent<HTMLElement>): Promise<void> {
+  async function focusEntry(entry: TranslationEntry, index: number, event: ReactMouseEvent<HTMLElement>): Promise<void> {
     setSelectedId(entry.id);
     setError("");
     try {
@@ -194,6 +223,8 @@ export function SidePanel() {
         type: "FOCUS_SEGMENT",
         segmentId: entry.id,
         anchor: cardAnchor(event),
+        label: String(index + 1),
+        color: entryColor(index),
       });
       if (!result?.focused) setError("ページが変わったため原文の位置が見つかりません。もう一度翻訳してください。");
     } catch (caught) {
@@ -245,164 +276,194 @@ export function SidePanel() {
     }
   }
 
+  const progress = visibleEntries.length > 0 ? translatedCount / visibleEntries.length : 0;
+
   return (
     <main className="panel-shell">
       <header className="panel-header">
-        <div className="brand-mark" aria-hidden="true">P<span>↔</span>T</div>
+        <img className="brand-mark" src="/icons/icon48.png" alt="" width="32" height="32" />
         <div className="brand-copy">
-          <p className="eyebrow">PAGE TRANSLATE</p>
+          <p className="eyebrow">Page Translate</p>
           <h1>ページ翻訳</h1>
         </div>
-        <button className="icon-button settings-trigger" type="button" aria-label={settingsOpen ? "翻訳画面に戻る" : "接続設定を開く"} onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) void checkProviders(); }}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z"/><path d="m19.4 13.5 1.1.8-1.4 2.4-1.3-.5a7.8 7.8 0 0 1-1.6.9l-.2 1.4h-2.8l-.2-1.4a7.8 7.8 0 0 1-1.6-.9l-1.3.5-1.4-2.4 1.1-.8a7.4 7.4 0 0 1 0-1.9l-1.1-.8 1.4-2.4 1.3.5a7.8 7.8 0 0 1 1.6-.9l.2-1.4h2.8l.2 1.4a7.8 7.8 0 0 1 1.6.9l1.3-.5 1.4 2.4-1.1.8a7.4 7.4 0 0 1 0 1.9Z"/></svg>
+        <button
+          className={`icon-button ${settingsOpen ? "active" : ""}`}
+          type="button"
+          aria-label={settingsOpen ? "翻訳画面に戻る" : "接続設定を開く"}
+          aria-pressed={settingsOpen}
+          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) void checkProviders(); }}
+        >
+          <Icon name="settings" />
         </button>
       </header>
 
       {settingsOpen ? (
         <section className="settings-page" aria-labelledby="settings-title">
-          <button className="settings-back" type="button" onClick={() => setSettingsOpen(false)}>← 翻訳画面に戻る</button>
-          <p className="eyebrow">TRANSLATION SERVICES</p>
+          <button className="text-button settings-back" type="button" onClick={() => setSettingsOpen(false)}>
+            <Icon name="back" />翻訳画面に戻る
+          </button>
+          <p className="eyebrow">Translation services</p>
           <h2 id="settings-title">接続設定</h2>
           <p className="settings-intro">翻訳対象の判定にTypeSafe Jev、翻訳にDeepLを使います。それぞれのAPIキーを登録してください。</p>
 
           <div className="provider-card">
             <div className="provider-card-heading">
-              <div><h3>TypeSafe Jev</h3><p>ページから翻訳する文章を選びます。</p></div>
-              <span className={`provider-badge ${providerStatus?.providers.jev ? "ready" : "missing"}`}>{providerStatus?.providers.jev ? "キー登録済み" : "未設定"}</span>
+              <div><h3>TypeSafe Jev</h3><p>ページから翻訳する本文を選びます。</p></div>
+              <span className={`badge ${providerStatus?.providers.jev ? "ready" : "missing"}`}>{providerStatus?.providers.jev ? "登録済み" : "未設定"}</span>
             </div>
             <label className="field-label" htmlFor="typesafe-api-key">APIキー</label>
-            <input id="typesafe-api-key" className="secret-input" type="password" autoComplete="new-password" spellCheck={false} value={typesafeApiKey} onChange={(event) => setTypesafeApiKey(event.target.value)} placeholder={providerStatus?.providers.jev ? "登録済み · 変更時だけ入力" : "TypeSafe JevのAPIキー"} />
+            <input id="typesafe-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={typesafeApiKey} onChange={(event) => setTypesafeApiKey(event.target.value)} placeholder={providerStatus?.providers.jev ? "登録済み · 変更時だけ入力" : "TypeSafe JevのAPIキー"} />
           </div>
 
           <div className="provider-card">
             <div className="provider-card-heading">
-              <div><h3>DeepL</h3><p>Jevが選んだ文章を翻訳します。</p></div>
-              <span className={`provider-badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "キー登録済み" : "未設定"}</span>
+              <div><h3>DeepL</h3><p>Jevが選んだ本文を翻訳します。</p></div>
+              <span className={`badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "登録済み" : "未設定"}</span>
             </div>
-            <label className="field-label" htmlFor="deepl-plan">DeepL APIプラン</label>
-            <select id="deepl-plan" className="secret-input" value={settings.deeplPlan} onChange={(event) => void persistSettings({ ...settings, deeplPlan: event.target.value === "pro" ? "pro" : "free" })}>
+            <label className="field-label" htmlFor="deepl-plan">APIプラン</label>
+            <select id="deepl-plan" className="field" value={settings.deeplPlan} onChange={(event) => void persistSettings({ ...settings, deeplPlan: event.target.value === "pro" ? "pro" : "free" })}>
               <option value="free">API Free</option>
               <option value="pro">API Pro</option>
             </select>
             <label className="field-label" htmlFor="deepl-api-key">APIキー</label>
-            <input id="deepl-api-key" className="secret-input" type="password" autoComplete="new-password" spellCheck={false} value={deeplApiKey} onChange={(event) => setDeeplApiKey(event.target.value)} placeholder={providerStatus?.providers.deepl ? "登録済み · 変更時だけ入力" : "DeepL APIキー"} />
+            <input id="deepl-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={deeplApiKey} onChange={(event) => setDeeplApiKey(event.target.value)} placeholder={providerStatus?.providers.deepl ? "登録済み · 変更時だけ入力" : "DeepL APIキー"} />
           </div>
 
-          {error && <div className="error-banner" role="alert"><span aria-hidden="true">!</span>{error}</div>}
-          <button className="secondary-action save-keys" type="button" onClick={() => void saveProviderKeys()} disabled={savingKeys}>
-            {savingKeys ? "保存しています…" : "APIキーを保存"}
+          {error && <div className="error-banner" role="alert"><Icon name="alert" />{error}</div>}
+          <button className="button primary block" type="button" onClick={() => void saveProviderKeys()} disabled={savingKeys}>
+            <Icon name="key" />{savingKeys ? "保存しています…" : "APIキーを保存"}
           </button>
-          <button className="clear-keys" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl}>保存中のAPIキーを削除</button>
-          <p className="settings-note">キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe JevまたはDeepLへ直接送信します。</p>
+          <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl}>
+            <Icon name="trash" />保存中のAPIキーを削除
+          </button>
+          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe JevまたはDeepLへ直接送信します。</p>
         </section>
       ) : (
         <>
-      <div className="page-context">
-        <span className="context-dot" />
-        <div>
-          <strong title={pageTitle || "現在のページ"}>{pageTitle || "現在のページ"}</strong>
-          <small>{pageUrl || "タブを選択してスキャン"}</small>
-        </div>
-        <label className="language-control">
-          <span className="sr-only">翻訳先</span>
-          <select
-            value={settings.targetLanguage}
-            onChange={(event) => void persistSettings({ ...settings, targetLanguage: event.target.value as TargetLanguage })}
-          >
-            <option value="JA">日本語</option>
-            <option value="EN">English</option>
-          </select>
-        </label>
-      </div>
+          <section className="controls">
+            <div className="page-context">
+              <span className="favicon-dot" aria-hidden="true">{pageUrl ? pageUrl.replace(/^www\./, "").slice(0, 1).toUpperCase() : <Icon name="inline" />}</span>
+              <div className="page-context-text">
+                <strong title={pageTitle || "現在のページ"}>{pageTitle || "現在のページ"}</strong>
+                <small>{pageUrl || "タブを選んで翻訳を開始"}</small>
+              </div>
+              <label className="language-control">
+                <span className="sr-only">翻訳先</span>
+                <select
+                  value={settings.targetLanguage}
+                  onChange={(event) => void persistSettings({ ...settings, targetLanguage: event.target.value as TargetLanguage })}
+                >
+                  <option value="JA">日本語へ</option>
+                  <option value="EN">英語へ</option>
+                </select>
+              </label>
+            </div>
 
-      <div className="mode-switch" role="group" aria-label="翻訳の表示方法">
-        <button type="button" className={settings.displayMode === "source-panel" ? "active" : ""} aria-pressed={settings.displayMode === "source-panel"} onClick={() => void changeMode("source-panel")}>
-          <span className="mode-icon">原</span><span>原文＋訳文</span>
-        </button>
-        <button type="button" className={settings.displayMode === "inline" ? "active" : ""} aria-pressed={settings.displayMode === "inline"} onClick={() => void changeMode("inline")}>
-          <span className="mode-icon">訳</span><span>ページ内</span>
-        </button>
-      </div>
+            <div className="mode-switch" role="group" aria-label="翻訳の表示方法">
+              <button type="button" className={settings.displayMode === "source-panel" ? "active" : ""} aria-pressed={settings.displayMode === "source-panel"} onClick={() => void changeMode("source-panel")}>
+                <Icon name="split" />原文＋訳文
+              </button>
+              <button type="button" className={settings.displayMode === "inline" ? "active" : ""} aria-pressed={settings.displayMode === "inline"} onClick={() => void changeMode("inline")}>
+                <Icon name="inline" />ページ内
+              </button>
+            </div>
 
-      <button className="primary-action" type="button" onClick={() => void startTranslation()} disabled={busy}>
-        <span aria-hidden="true">{busy ? "◌" : "文"}</span>
-        {busy ? "翻訳しています…" : "このページを翻訳"}
-        {!busy && <kbd>↵</kbd>}
-      </button>
-      <p className="privacy-note">翻訳時は候補の文章をJevへ送り、選ばれた文章をDeepLへ送信します。</p>
+            <button className="button primary block translate-button" type="button" onClick={() => void startTranslation()} disabled={busy} aria-busy={busy}>
+              {busy ? <span className="spinner" aria-hidden="true" /> : <Icon name="translate" />}
+              {busy ? "翻訳しています…" : "このページを翻訳"}
+            </button>
 
-      <div className="progress-line" role="status" aria-live="polite">
-        <span className={busy ? "status-pulse" : "status-dot"} />
-        <span>{status}</span>
-        {entries.length > 0 && <b>{translatedCount}/{entries.length}</b>}
-      </div>
+            <div className="status" role="status" aria-live="polite">
+              <div className="status-row">
+                <span className={`status-dot ${busy ? "busy" : entries.length > 0 ? "done" : ""}`} aria-hidden="true" />
+                <span className="status-text">{status}</span>
+                {visibleEntries.length > 0 && <b>{translatedCount}/{visibleEntries.length}</b>}
+              </div>
+              {(busy || visibleEntries.length > 0) && (
+                <div className={`progress ${busy && visibleEntries.length === 0 ? "indeterminate" : ""}`} aria-hidden="true">
+                  <span style={{ width: `${Math.round(progress * 100)}%` }} />
+                </div>
+              )}
+            </div>
+          </section>
 
-      {error && <div className="error-banner" role="alert"><span aria-hidden="true">!</span>{error}</div>}
+          {error && <div className="error-banner" role="alert"><Icon name="alert" />{error}</div>}
 
-      {entries.length > 0 ? (
-        <section className="results-section" aria-labelledby="results-title">
-          <div className="results-heading">
-            <div><p className="eyebrow">LINKED SEGMENTS</p><h2 id="results-title">翻訳箇所</h2></div>
-            <span className="result-count">{entries.length} 件</span>
-          </div>
-          <ol className="entry-list">
-            {entries.map((entry) => (
-              <li key={entry.id}>
-                <article className={`entry-card ${selectedId === entry.id ? "selected" : ""} ${entry.state}`} style={{ "--entry-color": colors[entry.order % colors.length] } as React.CSSProperties}>
-                  <button className="entry-main" type="button" onClick={(event) => void focusEntry(entry, event)} aria-label={`${entry.location}の原文位置へ移動`}>
-                    <span className="entry-topline">
-                      <span className="entry-number">{String(entry.order + 1).padStart(2, "0")}</span>
-                      <span className="entry-location">{entry.location}</span>
-                      <span className={`entry-state ${entry.state}`}>{stateLabel(entry.state)}</span>
-                    </span>
-                    <span className="entry-source">{entry.sourceText}</span>
-                    {entry.state === "translated" ? (
-                      <span className="entry-translation">{entry.translatedText}</span>
-                    ) : entry.state === "skipped" ? (
-                      <span className="entry-muted">翻訳対象外</span>
-                    ) : (
-                      <span className="entry-review">{entry.reason ?? "判定を確認してください。"}</span>
-                    )}
-                  </button>
-                  {entry.state === "review" && (
-                    <button className="review-action" type="button" onClick={() => void translateOne(entry)}>この文章を翻訳</button>
-                  )}
-                </article>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : (
-        <section className="empty-state">
-          <div className="empty-glyph" aria-hidden="true"><span>原文</span><i>↔</i><span>訳文</span></div>
-          <h2>ページの文章を、位置ごとに翻訳</h2>
-          <p>翻訳箇所を選ぶと、元の文章へ移動して短いコネクタで対応を示します。</p>
-          <div className="empty-steps"><span>01 <b>文章を抽出</b></span><span>02 <b>Jevが判定</b></span><span>03 <b>DeepLで翻訳</b></span></div>
-        </section>
-      )}
+          {visibleEntries.length > 0 ? (
+            <section className="results-section" aria-labelledby="results-title">
+              <div className="results-heading">
+                <h2 id="results-title">翻訳箇所</h2>
+                <span className="count">{visibleEntries.length}</span>
+              </div>
+              {hiddenCount > 0 && (
+                <p className="hidden-note"><Icon name="eyeOff" />本文外・翻訳対象外の{hiddenCount}件は表示していません</p>
+              )}
+              <ol className="entry-list">
+                {visibleEntries.map((entry, index) => (
+                  <li key={entry.id}>
+                    <article data-entry-id={entry.id} className={`entry-card ${selectedId === entry.id ? "selected" : ""} ${entry.state}`} style={{ "--entry-color": entryColor(index) } as React.CSSProperties}>
+                      <button className="entry-main" type="button" onClick={(event) => void focusEntry(entry, index, event)} aria-label={`${index + 1}番目：${entry.location}の原文位置へ移動`}>
+                        <span className="entry-topline">
+                          <span className="entry-number">{index + 1}</span>
+                          <span className="entry-location">{entry.location}</span>
+                          {entry.state !== "translated" && <span className={`badge ${entry.state}`}>{stateLabel(entry.state)}</span>}
+                        </span>
+                        {entry.state === "translated" ? (
+                          <span className="entry-translation">{entry.translatedText}</span>
+                        ) : (
+                          <span className="entry-review">{entry.reason ?? "判定を確認してください。"}</span>
+                        )}
+                        <span className="entry-source" lang={settings.targetLanguage === "JA" ? "en" : "ja"}>{entry.sourceText}</span>
+                      </button>
+                      {entry.state === "review" && (
+                        <button className="review-action" type="button" onClick={() => void translateOne(entry)}>
+                          <Icon name="translate" />この文章を翻訳
+                        </button>
+                      )}
+                    </article>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : (
+            <section className="empty-state">
+              <div className="empty-illustration" aria-hidden="true">
+                <span className="sheet source"><i /><i /><i /></span>
+                <svg className="empty-connector" viewBox="0 0 56 40"><path d="M2 10 C 28 10, 28 30, 54 30" /><circle cx="2" cy="10" r="2.5" /><circle cx="54" cy="30" r="3.5" /></svg>
+                <span className="sheet target"><i /><i /></span>
+              </div>
+              <h2>本文だけを、原文の位置と結んで翻訳</h2>
+              <p>ナビゲーションや広告などを除いた本文を翻訳します。訳文を選ぶと、原文の位置までコネクタで結びます。</p>
+              <ol className="steps">
+                <li><span>1</span>本文を抽出</li>
+                <li><span>2</span>Jevが翻訳対象を判定</li>
+                <li><span>3</span>DeepLで翻訳</li>
+              </ol>
+            </section>
+          )}
 
-      <footer className="panel-footer">
-        {settings.displayMode === "inline" && translatedCount > 0 && (
-          <button type="button" className="restore-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>
-            ↶ 原文に戻す
-          </button>
-        )}
-        <span>翻訳先：{settings.targetLanguage === "JA" ? "日本語" : "English"}</span>
-      </footer>
-
+          <footer className="panel-footer">
+            <span className="privacy"><Icon name="shield" />翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信</span>
+            {settings.displayMode === "inline" && translatedCount > 0 && (
+              <button type="button" className="text-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>
+                <Icon name="restore" />原文に戻す
+              </button>
+            )}
+          </footer>
         </>
       )}
       {consentOpen && (
         <div className="consent-backdrop">
           <section className="consent-dialog" role="dialog" aria-modal="true" aria-labelledby="consent-title" aria-describedby="consent-description">
-            <p className="eyebrow">PAGE TRANSLATE · DATA USE</p>
+            <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
+            <p className="eyebrow">Data use</p>
             <h2 id="consent-title">ページの文章を外部サービスへ送信します</h2>
             <p id="consent-description">翻訳を始めると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe JevとDeepLです。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a></p>
             <div className="consent-actions">
-              <button className="consent-cancel" type="button" onClick={() => setConsentOpen(false)}>キャンセル</button>
-              <button className="consent-accept" type="button" onClick={() => void agreeAndTranslate()}>同意して翻訳を始める</button>
+              <button className="button secondary" type="button" onClick={() => setConsentOpen(false)}>キャンセル</button>
+              <button className="button primary" type="button" onClick={() => void agreeAndTranslate()}>同意して翻訳を始める</button>
             </div>
           </section>
         </div>
@@ -425,11 +486,32 @@ async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {
  */
 function cardAnchor(event: ReactMouseEvent<HTMLElement>): FocusAnchor | undefined {
   const card = event.currentTarget.closest<HTMLElement>(".entry-card") ?? event.currentTarget;
-  const rect = card.getBoundingClientRect();
   // Real clicks carry screen coordinates; keyboard activation reports 0/0.
-  const top = event.detail > 0 ? event.screenY - event.clientY : panelScreenTop;
-  if (top === null) return undefined;
-  return { screenY: top + rect.top + Math.min(rect.height / 2, 22) };
+  return anchorFor(card, event.detail > 0 ? event.screenY - event.clientY : panelScreenTop);
+}
+
+function anchorFor(card: HTMLElement, panelTop: number | null): FocusAnchor | undefined {
+  if (panelTop === null) return undefined;
+  const rect = card.getBoundingClientRect();
+  // Once the card leaves the panel, pin the connector to the nearest edge.
+  const y = rect.top + Math.min(rect.height / 2, 22);
+  return { screenY: panelTop + Math.min(Math.max(y, 8), window.innerHeight - 8) };
+}
+
+function entryColor(index: number): string {
+  return colors[index % colors.length] ?? colors[0];
+}
+
+/**
+ * Text that is already written in the target language needs no translation; drop it
+ * before it reaches Jev so it never shows up as a card. Only the Japanese check is
+ * reliable enough to run locally (Latin script is shared by many source languages).
+ */
+function isInTargetLanguage(text: string, target: TargetLanguage): boolean {
+  if (target !== "JA") return false;
+  const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
+  const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
+  return japanese > 0 && latin / (japanese + latin) < 0.3;
 }
 
 function stateLabel(state: SegmentState): string {

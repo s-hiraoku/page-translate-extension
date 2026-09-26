@@ -20,6 +20,14 @@ const NOISE_TOKENS = [
 ];
 const POSITIVE_PATTERN = /article|post|entry|content|story|main|body|text|blog|prose|markdown|rich-?text/i;
 const NOISE_SET = new Set(NOISE_TOKENS);
+/** Article metadata (bylines, dates, tag lists, tables of contents): part of the page, not the text. */
+const META_TOKENS = new Set([
+  "byline", "author", "authors", "meta", "metadata", "date", "dateline", "published", "updated", "timestamp",
+  "tags", "tag", "taglist", "category", "categories", "toc", "readtime", "reading", "breadcrumb", "breadcrumbs",
+  "credit", "credits", "copyright",
+]);
+/** Short strings that are dates, times or read-time labels rather than prose. */
+const METADATA_TEXT = /^(?:(?:updated|published|posted|last\s+updated|更新|公開|投稿)[:：\s]*)?(?:[\d\s,./:-]+(?:年|月|日|時|分|秒)?|\d+\s*(?:min(?:ute)?s?|分)\s*(?:read|で読める)?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})+$/i;
 const MIN_MAIN_TEXT = 400;
 
 export interface MainContentInfo {
@@ -140,6 +148,8 @@ function landmarkRegion(node: HTMLElement, inRoot: boolean): SegmentRegion | nul
   if (tokens.some((token) => ["share", "sharing", "social", "sns", "follow"].includes(token))) return "share";
   if (tokens.some((token) => ["nav", "navbar", "navigation", "menu", "breadcrumb", "breadcrumbs", "pagination", "pager", "toolbar"].includes(token))) return "navigation";
   if (tokens.some((token) => ["sidebar", "widget"].includes(token))) return "sidebar";
+  if (tag === "TIME" || tag === "ADDRESS" || node.getAttribute("rel") === "author") return "meta";
+  if (tokens.some((token) => META_TOKENS.has(token))) return "meta";
   if (!inRoot && tokens.some((token) => token === "footer")) return "footer";
   if (!inRoot && tokens.some((token) => token === "masthead" || token === "header")) return "header";
   return null;
@@ -165,14 +175,19 @@ export function linkDensity(element: HTMLElement): number {
   return Math.min(1, linked / total);
 }
 
-/** Regions that are site chrome rather than content; never worth a Jev query. */
-export function isHardNoise(region: SegmentRegion, kind: SegmentKind, density: number, hasMainRoot: boolean): boolean {
-  if (region === "navigation" || region === "ad" || region === "overlay" || region === "share") return true;
-  if (!hasMainRoot) return (region === "footer" || region === "header") && (kind === "control" || density > 0.3);
-  if (region === "main") return false;
+/**
+ * Candidates that are not the article's text; they are dropped before anything is
+ * sent to Jev and never appear in the panel.
+ */
+export function isHardNoise(region: SegmentRegion, kind: SegmentKind, density: number, hasMainRoot: boolean, text = ""): boolean {
+  if (region !== "main" && region !== "outside" && region !== "unknown") return true;
+  if (text.length <= 48 && METADATA_TEXT.test(text.trim())) return true;
+  // Once the article is known, everything around it is site chrome.
+  if (hasMainRoot && region !== "main") return true;
+  // Standalone links and buttons ("Read more", "Share", tag chips) are UI labels, not prose.
   if (kind === "control") return true;
-  if (region === "footer" || region === "header" || region === "related" || region === "sidebar" || region === "comments") return true;
-  // Link lists (e.g. "latest posts") outside the article.
+  if (region === "main") return false;
+  // Link lists (e.g. "latest posts") when no article could be detected.
   return density > 0.5;
 }
 

@@ -48,6 +48,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       return sendToActiveTab(message, (tabId) => chrome.tabs.getZoom(tabId).catch(() => 1).then((zoom) => ({ ...message, zoom })));
     case "APPLY_TRANSLATIONS":
     case "RESTORE_PAGE":
+    case "UPDATE_FOCUS_ANCHOR":
       return sendToActiveTab(message);
     case "CLASSIFY_CANDIDATES":
       return classifyCandidates(message.segments, message.targetLanguage, message.pageTitle, {
