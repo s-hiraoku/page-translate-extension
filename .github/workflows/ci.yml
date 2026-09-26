@@ -36,3 +36,61 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  package:
+    name: Package extension zip
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package store zip
+        run: npm run zip
+
+      - name: Upload extension zip
+        uses: actions/upload-artifact@v7
+        with:
+          # archive: false uploads the store zip itself. The artifact name is
+          # the file name (page-translate-v<version>-chrome.zip).
+          path: .output/page-translate-v*-chrome.zip
+          archive: false
+          if-no-files-found: error
+
+  pages:
+    name: Deploy GitHub Pages
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
