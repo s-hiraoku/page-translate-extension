@@ -9,10 +9,12 @@ import type {
   ScanResult,
   SegmentState,
   TargetLanguage,
+  ThemePreference,
   TranslationEntry,
 } from "../shared/types";
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, SETTINGS_KEY } from "../shared/types";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
+import { applyTheme, cachedTheme } from "./theme";
 
 interface DecisionResult {
   decisions: Array<{ id: string; decision: Decision; confidence: number }>;
@@ -26,6 +28,12 @@ interface ProviderStatus {
   providers: { jev: boolean; deepl: boolean };
 }
 
+const themeOptions: Array<{ value: ThemePreference; label: string; icon: IconName }> = [
+  { value: "system", label: "システム", icon: "monitor" },
+  { value: "light", label: "ライト", icon: "sun" },
+  { value: "dark", label: "ダーク", icon: "moon" },
+];
+
 const colors = ["#2c5cf0", "#e0702a", "#0f8a6c", "#9150c8", "#c23d5f", "#6f8517"];
 
 /** Screen Y of the side panel viewport's top edge, learned from pointer events. */
@@ -34,7 +42,7 @@ window.addEventListener("pointermove", (event) => { panelScreenTop = event.scree
 window.addEventListener("pointerdown", (event) => { panelScreenTop = event.screenY - event.clientY; }, { passive: true });
 
 export function SidePanel() {
-  const [settings, setSettings] = useState<ExtensionSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<ExtensionSettings>(() => ({ ...DEFAULT_SETTINGS, theme: cachedTheme() }));
   const [entries, setEntries] = useState<TranslationEntry[]>([]);
   const [pageTitle, setPageTitle] = useState("");
   const [pageUrl, setPageUrl] = useState("");
@@ -82,6 +90,8 @@ export function SidePanel() {
   // Jev's "skip" decisions are not part of the article: they never appear in the list.
   const visibleEntries = useMemo(() => entries.filter((entry) => entry.state !== "skipped"), [entries]);
   const hiddenCount = droppedCount + entries.length - visibleEntries.length;
+  useEffect(() => applyTheme(settings.theme), [settings.theme]);
+
   const translatedCount = useMemo(() => visibleEntries.filter((entry) => entry.state === "translated").length, [visibleEntries]);
 
   async function persistSettings(next: ExtensionSettings): Promise<void> {
@@ -289,7 +299,7 @@ export function SidePanel() {
         <button
           className={`icon-button ${settingsOpen ? "active" : ""}`}
           type="button"
-          aria-label={settingsOpen ? "翻訳画面に戻る" : "接続設定を開く"}
+          aria-label={settingsOpen ? "翻訳画面に戻る" : "設定を開く"}
           aria-pressed={settingsOpen}
           onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) void checkProviders(); }}
         >
@@ -302,10 +312,27 @@ export function SidePanel() {
           <button className="text-button settings-back" type="button" onClick={() => setSettingsOpen(false)}>
             <Icon name="back" />翻訳画面に戻る
           </button>
-          <p className="eyebrow">Translation services</p>
-          <h2 id="settings-title">接続設定</h2>
-          <p className="settings-intro">翻訳対象の判定にTypeSafe Jev、翻訳にDeepLを使います。それぞれのAPIキーを登録してください。</p>
+          <p className="eyebrow">Settings</p>
+          <h2 id="settings-title">設定</h2>
+          <p className="settings-intro">表示テーマと、翻訳に使うサービスを設定します。翻訳対象の判定にTypeSafe Jev、翻訳にDeepLを使います。</p>
 
+          <h3 className="settings-section" id="theme-label">表示テーマ</h3>
+          <div className="mode-switch theme-switch" role="radiogroup" aria-labelledby="theme-label">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={settings.theme === option.value}
+                className={settings.theme === option.value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, theme: option.value })}
+              >
+                <Icon name={option.icon} />{option.label}
+              </button>
+            ))}
+          </div>
+
+          <h3 className="settings-section">翻訳サービス</h3>
           <div className="provider-card">
             <div className="provider-card-heading">
               <div><h3>TypeSafe Jev</h3><p>ページから翻訳する本文を選びます。</p></div>

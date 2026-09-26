@@ -1,5 +1,6 @@
 export type TargetLanguage = "JA" | "EN";
 export type DisplayMode = "source-panel" | "inline";
+export type ThemePreference = "system" | "light" | "dark";
 export type Decision = "translate" | "skip" | "review";
 export type SegmentState = "pending" | "translated" | "review" | "skipped" | "error";
 export type DeepLPlan = "free" | "pro";
@@ -61,6 +62,7 @@ export interface ExtensionSettings {
   targetLanguage: TargetLanguage;
   displayMode: DisplayMode;
   deeplPlan: DeepLPlan;
+  theme: ThemePreference;
 }
 
 export const SETTINGS_KEY = "pageTranslateSettings";
@@ -71,6 +73,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   targetLanguage: "JA",
   displayMode: "source-panel",
   deeplPlan: "free",
+  theme: "system",
 };
 
 export type ExtensionMessage =
