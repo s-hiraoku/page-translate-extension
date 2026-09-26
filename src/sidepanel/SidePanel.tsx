@@ -14,7 +14,7 @@ import type {
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, SETTINGS_KEY } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_PRESENCE_PORT, SETTINGS_KEY } from "../shared/types";
 import { Icon, type IconName } from "./Icon";
 import { applyTheme, cachedTheme } from "./theme";
 
@@ -205,6 +205,7 @@ export function SidePanel() {
     } else {
       card.scrollIntoView({ block: "center", behavior: "instant" });
     }
+    await holdPresence();
     await sendMessage({
       type: "FOCUS_SEGMENT",
       segmentId,
@@ -353,6 +354,7 @@ export function SidePanel() {
     setSelectedId(entry.id);
     setError("");
     try {
+      await holdPresence();
       const result = await sendMessage<{ focused: boolean }>({
         type: "FOCUS_SEGMENT",
         segmentId: entry.id,
@@ -637,6 +639,29 @@ export function SidePanel() {
       )}
     </main>
   );
+}
+
+/** Ports to tabs where this panel has drawn a connector, keyed by tab id. */
+const presencePorts = new Map<number, chrome.runtime.Port>();
+
+/**
+ * Keeps a port open to the active tab. When the side panel closes the port drops and
+ * the page removes its connector; there is no other signal that the panel went away.
+ */
+async function holdPresence(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+  const tabId = tab?.id;
+  if (tabId === undefined || presencePorts.has(tabId)) return;
+  try {
+    const port = chrome.tabs.connect(tabId, { name: PANEL_PRESENCE_PORT });
+    port.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError;
+      presencePorts.delete(tabId);
+    });
+    presencePorts.set(tabId, port);
+  } catch {
+    // Pages without the content script have no connector to clean up.
+  }
 }
 
 async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {

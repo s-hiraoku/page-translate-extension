@@ -97,6 +97,8 @@ export type ExtensionMessage =
 
 /** Port name for page-click mode: the side panel connects to the tab while the mode is on. */
 export const PAGE_PICK_PORT = "page-pick";
+/** Held open by the side panel while it shows a connector in a tab; closing the panel drops it. */
+export const PANEL_PRESENCE_PORT = "panel-presence";
 
 export interface PagePickTarget {
   id: string;

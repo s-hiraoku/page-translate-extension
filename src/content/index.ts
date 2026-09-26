@@ -1,5 +1,5 @@
 import type { CandidateSegment, FocusAnchor, PagePickEvent, PagePickRequest, PagePickTarget, ScanResult, SegmentRegion, TranslationEntry } from "../shared/types";
-import { PAGE_PICK_PORT } from "../shared/types";
+import { PAGE_PICK_PORT, PANEL_PRESENCE_PORT } from "../shared/types";
 import { classifyRegion, detectMainContent, isHardNoise, linkDensity, segmentKind, type MainContentInfo } from "./main-content";
 
 const BLOCK_SELECTOR = [
@@ -393,6 +393,18 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
  * Closing the panel disconnects the port, which always ends the mode.
  */
 let pagePick: { port: chrome.runtime.Port; targets: Map<HTMLElement, PagePickTarget>; dispose: () => void } | null = null;
+
+/** Side panels currently connected to this page; the connector lives only while one is open. */
+let panelPorts = 0;
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PANEL_PRESENCE_PORT) return;
+  panelPorts += 1;
+  port.onDisconnect.addListener(() => {
+    panelPorts = Math.max(0, panelPorts - 1);
+    if (panelPorts === 0) clearFocusOverlay();
+  });
+});
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PAGE_PICK_PORT) return;
