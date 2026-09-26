@@ -86,8 +86,25 @@ export type ExtensionMessage =
   | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage }
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
-  | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string }
+  | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string; scroll?: boolean }
   | { type: "UPDATE_FOCUS_ANCHOR"; anchor: FocusAnchor };
+
+/** Port name for page-click mode: the side panel connects to the tab while the mode is on. */
+export const PAGE_PICK_PORT = "page-pick";
+
+export interface PagePickTarget {
+  id: string;
+  label: string;
+  color: string;
+}
+
+/** Side panel → page over the page-pick port. */
+export type PagePickRequest = { type: "targets"; targets: PagePickTarget[]; zoom: number };
+
+/** Page → side panel over the page-pick port. */
+export type PagePickEvent =
+  | { type: "picked"; segmentId: string; anchor: FocusAnchor | null }
+  | { type: "exit" };
 
 export interface RuntimeError {
   error: string;

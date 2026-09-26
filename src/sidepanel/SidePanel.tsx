@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type {
   CandidateSegment,
   Decision,
@@ -6,13 +6,15 @@ import type {
   ExtensionMessage,
   ExtensionSettings,
   FocusAnchor,
+  PagePickEvent,
+  PagePickRequest,
   ScanResult,
   SegmentState,
   TargetLanguage,
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, SETTINGS_KEY } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, SETTINGS_KEY } from "../shared/types";
 import { Icon, type IconName } from "./Icon";
 import { applyTheme, cachedTheme } from "./theme";
 
@@ -58,6 +60,8 @@ export function SidePanel() {
   const [consentOpen, setConsentOpen] = useState(false);
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
+  /** Page-click mode: clicking translated text on the page selects its card. */
+  const [pagePick, setPagePick] = useState(false);
 
   // Keep the page connector attached to the selected card while the panel scrolls or resizes.
   useEffect(() => {
@@ -92,6 +96,75 @@ export function SidePanel() {
   const hiddenCount = droppedCount + entries.length - visibleEntries.length;
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
 
+  const pickable = useMemo(
+    () => visibleEntries.flatMap((entry, index) => entry.state === "translated" ? [{ id: entry.id, label: String(index + 1), color: entryColor(index) }] : []),
+    [visibleEntries],
+  );
+  const pickableKey = pickable.map((target) => target.id).join(",");
+  const visibleRef = useRef(visibleEntries);
+  visibleRef.current = visibleEntries;
+
+  // While page-click mode is on, hold a port to the tab. The page reports clicks on
+  // translated text through it; closing the panel drops the port and ends the mode.
+  useEffect(() => {
+    if (!pagePick || pickable.length === 0) return;
+    let port: chrome.runtime.Port | null = null;
+    let cancelled = false;
+    void (async () => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (cancelled || tab?.id === undefined) return;
+      const zoom = await chrome.tabs.getZoom(tab.id).catch(() => 1);
+      if (cancelled) return;
+      port = chrome.tabs.connect(tab.id, { name: PAGE_PICK_PORT });
+      port.onMessage.addListener((message: PagePickEvent) => {
+        if (message.type === "exit") setPagePick(false);
+        else if (message.type === "picked") void revealPicked(message.segmentId, message.anchor);
+      });
+      port.onDisconnect.addListener(() => {
+        if (cancelled) return;
+        setPagePick(false);
+        setError("ページとの接続が切れたため、ページクリックを終了しました。");
+      });
+      port.postMessage({ type: "targets", targets: pickable, zoom } satisfies PagePickRequest);
+    })().catch((caught: unknown) => {
+      setPagePick(false);
+      setError(errorMessage(caught));
+    });
+    return () => {
+      cancelled = true;
+      port?.disconnect();
+    };
+    // pickableKey captures every change to the targets.
+  }, [pagePick, pickableKey]);
+
+  useEffect(() => {
+    if (pickable.length === 0) setPagePick(false);
+  }, [pickable.length]);
+
+  /** A source was clicked on the page: line its card up with it and draw the connector. */
+  async function revealPicked(segmentId: string, anchor: FocusAnchor | null): Promise<void> {
+    const index = visibleRef.current.findIndex((entry) => entry.id === segmentId);
+    if (index < 0) return;
+    setSelectedId(segmentId);
+    setError("");
+    const card = document.querySelector<HTMLElement>(`[data-entry-id="${segmentId}"]`);
+    if (!card) return;
+    if (anchor && panelScreenTop !== null) {
+      const cardY = card.getBoundingClientRect().top + Math.min(card.offsetHeight / 2, 22);
+      window.scrollBy({ top: cardY - (anchor.screenY - panelScreenTop), behavior: "instant" });
+    } else {
+      card.scrollIntoView({ block: "center", behavior: "instant" });
+    }
+    await sendMessage({
+      type: "FOCUS_SEGMENT",
+      segmentId,
+      anchor: anchorFor(card, panelScreenTop),
+      label: String(index + 1),
+      color: entryColor(index),
+      scroll: false,
+    }).catch((caught: unknown) => setError(errorMessage(caught)));
+  }
+
   const translatedCount = useMemo(() => visibleEntries.filter((entry) => entry.state === "translated").length, [visibleEntries]);
 
   async function persistSettings(next: ExtensionSettings): Promise<void> {
@@ -120,6 +193,7 @@ export function SidePanel() {
     setEntries([]);
     setDroppedCount(0);
     setSelectedId(null);
+    setPagePick(false);
     setStatus("ページの文章を調べています…");
     try {
       await sendMessage({ type: "RESTORE_PAGE" }).catch(() => undefined);
@@ -421,7 +495,20 @@ export function SidePanel() {
               <div className="results-heading">
                 <h2 id="results-title">翻訳箇所</h2>
                 <span className="count">{visibleEntries.length}</span>
+                <button
+                  type="button"
+                  className={`pick-toggle ${pagePick ? "active" : ""}`}
+                  aria-pressed={pagePick}
+                  disabled={pickable.length === 0}
+                  title="ページ上の本文をクリックして、対応する訳文を表示します"
+                  onClick={() => setPagePick((on) => !on)}
+                >
+                  <Icon name="pointer" />ページクリック
+                </button>
               </div>
+              {pagePick && (
+                <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上の本文をクリックすると、訳文とコネクタを表示します。Escで終了</p>
+              )}
               {hiddenCount > 0 && (
                 <p className="hidden-note"><Icon name="eyeOff" />本文外・翻訳対象外の{hiddenCount}件は表示していません</p>
               )}
