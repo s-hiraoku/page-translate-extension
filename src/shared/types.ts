@@ -34,6 +34,10 @@ export interface CandidateSegment {
   /** Share of the text that is link text (0–1). */
   linkDensity: number;
   isArticleTitle: boolean;
+  /** Added by the reader in page-click mode rather than by the page scan. */
+  manual?: boolean;
+  /** A selected part of the element's text; never written back into the page. */
+  partial?: boolean;
 }
 
 export interface ScanResult {
@@ -106,6 +110,8 @@ export type PagePickRequest = { type: "targets"; targets: PagePickTarget[]; zoom
 /** Page → side panel over the page-pick port. */
 export type PagePickEvent =
   | { type: "picked"; segmentId: string; anchor: FocusAnchor | null }
+  /** Text that is not a translated card yet. `followingIds` are known segments after it, in page order. */
+  | { type: "added"; segment: CandidateSegment; followingIds: string[]; anchor: FocusAnchor | null }
   | { type: "exit" };
 
 export interface RuntimeError {

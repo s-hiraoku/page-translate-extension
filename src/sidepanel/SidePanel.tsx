@@ -103,6 +103,10 @@ export function SidePanel() {
   const pickableKey = pickable.map((target) => target.id).join(",");
   const visibleRef = useRef(visibleEntries);
   visibleRef.current = visibleEntries;
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   // While page-click mode is on, hold a port to the tab. The page reports clicks on
   // translated text through it; closing the panel drops the port and ends the mode.
@@ -119,6 +123,7 @@ export function SidePanel() {
       port.onMessage.addListener((message: PagePickEvent) => {
         if (message.type === "exit") setPagePick(false);
         else if (message.type === "picked") void revealPicked(message.segmentId, message.anchor);
+        else if (message.type === "added") void addFromPage(message.segment, message.followingIds, message.anchor);
       });
       port.onDisconnect.addListener(() => {
         if (cancelled) return;
@@ -140,6 +145,51 @@ export function SidePanel() {
   useEffect(() => {
     if (pickable.length === 0) setPagePick(false);
   }, [pickable.length]);
+
+  /**
+   * Text without a translated card was clicked or selected on the page: add a card in
+   * page order (or reuse the hidden one), translate it with DeepL and link it.
+   */
+  async function addFromPage(segment: CandidateSegment, followingIds: string[], anchor: FocusAnchor | null): Promise<void> {
+    const existing = entriesRef.current.find((entry) => entry.id === segment.id);
+    if (existing && (existing.state === "translated" || existing.reason === ADDING)) {
+      await revealPicked(existing.id, anchor);
+      return;
+    }
+    const entry: TranslationEntry = { ...segment, state: "pending", reason: ADDING, uncertain: false };
+    const following = new Set(followingIds);
+    const current = entriesRef.current;
+    let next: TranslationEntry[];
+    if (existing) {
+      next = current.map((item) => item.id === entry.id ? entry : item);
+    } else {
+      const at = current.findIndex((item) => following.has(item.id));
+      next = at < 0 ? [...current, entry] : [...current.slice(0, at), entry, ...current.slice(at)];
+    }
+    entriesRef.current = next;
+    setEntries(next);
+    setError("");
+    await nextPaint();
+    await revealPicked(entry.id, anchor);
+
+    try {
+      // This runs from the port listener, so read the current settings through the ref.
+      const result = await sendMessage<TranslationResult>({
+        type: "TRANSLATE_SEGMENTS",
+        segments: [entry],
+        targetLanguage: settingsRef.current.targetLanguage,
+      });
+      const translation = result.translations.find((item) => item.id === entry.id);
+      if (!translation) throw new Error("翻訳結果と文章の対応が取れませんでした。");
+      const done = entriesRef.current.map((item) => item.id === entry.id ? { ...entry, ...translation, state: "translated" as const, reason: undefined } : item);
+      entriesRef.current = done;
+      setEntries(done);
+      if (settingsRef.current.displayMode === "inline" && !entry.partial) await applyInline(done);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setEntries((items) => items.map((item) => item.id === entry.id ? { ...item, state: "review", reason: "翻訳に失敗しました。再試行できます。" } : item));
+    }
+  }
 
   /** A source was clicked on the page: line its card up with it and draw the connector. */
   async function revealPicked(segmentId: string, anchor: FocusAnchor | null): Promise<void> {
@@ -293,7 +343,7 @@ export function SidePanel() {
   }
 
   async function applyInline(current: TranslationEntry[]): Promise<void> {
-    const ready = current.filter((entry) => entry.state === "translated");
+    const ready = current.filter((entry) => entry.state === "translated" && !entry.partial);
     if (ready.length === 0) return;
     const result = await sendMessage<{ applied: number }>({ type: "APPLY_TRANSLATIONS", entries: ready });
     setStatus(`ページ内に${result.applied}件を表示しています。`);
@@ -507,7 +557,7 @@ export function SidePanel() {
                 </button>
               </div>
               {pagePick && (
-                <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上の本文をクリックすると、訳文とコネクタを表示します。Escで終了</p>
+                <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />本文をクリックで訳文を表示。翻訳されていない箇所はクリックか文字の選択で追加して翻訳します。Escで終了</p>
               )}
               {hiddenCount > 0 && (
                 <p className="hidden-note"><Icon name="eyeOff" />本文外・翻訳対象外の{hiddenCount}件は表示していません</p>
@@ -613,6 +663,12 @@ function anchorFor(card: HTMLElement, panelTop: number | null): FocusAnchor | un
   // Once the card leaves the panel, pin the connector to the nearest edge.
   const y = rect.top + Math.min(rect.height / 2, 22);
   return { screenY: panelTop + Math.min(Math.max(y, 8), window.innerHeight - 8) };
+}
+
+const ADDING = "翻訳しています…";
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }
 
 function entryColor(index: number): string {
