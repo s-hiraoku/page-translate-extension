@@ -61,10 +61,13 @@ jobs:
       - name: Upload extension zip
         uses: actions/upload-artifact@v7
         with:
-          # archive: false uploads the store zip itself. The artifact name is
+          # .output is hidden, so the default search skips the zip npm run zip
+          # just wrote. archive: false uploads that single zip itself (not a
+          # zip of a zip). A one-file glob is accepted; the artifact name is
           # the file name (page-translate-v<version>-chrome.zip).
           path: .output/page-translate-v*-chrome.zip
           archive: false
+          include-hidden-files: true
           if-no-files-found: error
 
   pages:

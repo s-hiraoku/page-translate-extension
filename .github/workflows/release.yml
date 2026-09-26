@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish store zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          # README: Node.js 20.19+ or 22.12+
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package store zip
+        run: npm run zip
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(.output/page-translate-v*-chrome.zip)
+          if [[ ${#files[@]} -ne 1 ]]; then
+            echo "Expected exactly one store zip, found ${#files[@]}" >&2
+            exit 1
+          fi
+          zip="${files[0]}"
+          base="$(basename "$zip")"
+          pkg="$(node --input-type=commonjs -p "require('./package.json').version")"
+          expected="page-translate-v${pkg}-chrome.zip"
+          if [[ "$base" != "$expected" ]]; then
+            echo "package.json version ${pkg} does not match ${base}. Align package.json with src/manifest.ts before tagging." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_NAME" != "v${pkg}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version v${pkg}." >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" "$zip" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Chrome ウェブストア提出用の ${base} です。"
