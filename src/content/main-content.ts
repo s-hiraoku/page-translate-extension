@@ -20,10 +20,12 @@ const NOISE_TOKENS = [
 ];
 const POSITIVE_PATTERN = /article|post|entry|content|story|main|body|text|blog|prose|markdown|rich-?text/i;
 const NOISE_SET = new Set(NOISE_TOKENS);
+/** Metadata blocks are short; a container holding more text than this is prose, whatever its class says. */
+const MAX_META_TEXT = 200;
 /** Article metadata (bylines, dates, tag lists, tables of contents): part of the page, not the text. */
 const META_TOKENS = new Set([
   "byline", "author", "authors", "meta", "metadata", "date", "dateline", "published", "updated", "timestamp",
-  "tags", "tag", "taglist", "category", "categories", "toc", "readtime", "reading", "breadcrumb", "breadcrumbs",
+  "tags", "tag", "taglist", "category", "categories", "toc", "readtime", "readingtime", "breadcrumb", "breadcrumbs",
   "credit", "credits", "copyright",
 ]);
 /** Short strings that are dates, times or read-time labels rather than prose. */
@@ -148,11 +150,16 @@ function landmarkRegion(node: HTMLElement, inRoot: boolean): SegmentRegion | nul
   if (tokens.some((token) => ["share", "sharing", "social", "sns", "follow"].includes(token))) return "share";
   if (tokens.some((token) => ["nav", "navbar", "navigation", "menu", "breadcrumb", "breadcrumbs", "pagination", "pager", "toolbar"].includes(token))) return "navigation";
   if (tokens.some((token) => ["sidebar", "widget"].includes(token))) return "sidebar";
-  if (tag === "TIME" || tag === "ADDRESS" || node.getAttribute("rel") === "author") return "meta";
-  if (tokens.some((token) => META_TOKENS.has(token))) return "meta";
+  if (isMetadataBlock(node, tag, tokens)) return "meta";
   if (!inRoot && tokens.some((token) => token === "footer")) return "footer";
   if (!inRoot && tokens.some((token) => token === "masthead" || token === "header")) return "header";
   return null;
+}
+
+function isMetadataBlock(node: HTMLElement, tag: string, tokens: string[]): boolean {
+  const hinted = tag === "TIME" || tag === "ADDRESS" || node.getAttribute("rel") === "author"
+    || tokens.some((token, index) => META_TOKENS.has(token) || META_TOKENS.has(token + (tokens[index + 1] ?? "")));
+  return hinted && normalize(node.textContent ?? "").length <= MAX_META_TEXT;
 }
 
 export function segmentKind(element: HTMLElement): SegmentKind {
