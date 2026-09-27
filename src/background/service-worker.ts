@@ -103,7 +103,9 @@ async function sendToActiveTab(
   try {
     return await chrome.tabs.sendMessage(tab.id, payload);
   } catch {
-    throw new Error("このページでは拡張機能を実行できません。通常のWebページでお試しください。");
+    // Usually the tab was open before the extension was installed, updated or reloaded, so
+    // it has no content script yet; chrome:// and Web Store pages never get one.
+    throw new Error("このページと接続できませんでした。ページを再読み込みしてから、もう一度お試しください。chrome:// やChromeウェブストアなどのページでは使えません。");
   }
 }
 
