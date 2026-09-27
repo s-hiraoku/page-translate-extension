@@ -53,6 +53,23 @@ npm run zip
 - GitHub の Actions タブで「Release」ワークフローを手動実行する（`ref` は通常 `main`）。`package.json` の version から `v1.3.1` のようなタグを作り、Release も作成します。同じタグがすでにある場合は失敗します。
 - `v1.3.1` のように `v` と version を続けたタグを push する。
 
+### テスト
+
+```sh
+npm test            # ユニットテスト（Vitest）
+npm run test:e2e    # ビルドしてから、実際の拡張機能をChromiumで動かすE2Eテスト（Playwright）
+```
+
+初回だけ `npx playwright install chromium` でテスト用のChromiumを入れてください。
+
+- `tests/unit`：本文判定のルール（`src/sidepanel/rules.ts`）、英作文の差分、ページ種別の判定、DeepLのプラン判定
+- `tests/e2e/content-script.spec.ts`：`dist` を拡張機能として読み込み、`tests/e2e/fixtures` のページで本文抽出、ページ内翻訳、コネクタ、ページクリックモードを確かめます
+- `tests/e2e/side-panel.spec.ts`：ビルドしたサイドパネルを `chrome.*` のモック（`tests/e2e/support/chrome-mock.ts`）付きで開き、カード表示、Jevのオン・オフ、同意、英作文チェックを確かめます
+
+不具合を直したときは、再発を防ぐテストを一緒に追加してください。サイトで問題が出たときは、該当部分を最小限のHTMLにして `tests/e2e/fixtures` に置くと再現できます。`E2E_DIST=<別ビルドのdist> npx playwright test` で、過去のリリースに対して同じテストを実行できます。
+
+pull request と `main` への push では、GitHub Actions が型チェック、ユニットテスト、ビルド、E2Eテストを実行します。
+
 プライバシーポリシーは [`docs/privacy.html`](docs/privacy.html) を GitHub Pages で公開します。公開 URL は https://s-hiraoku.github.io/page-translate-extension/privacy.html です。
 
 ## 権限
