@@ -30,9 +30,9 @@ npm run zip
 
 `npm run zip` は `.output/page-translate-v<version>-chrome.zip` を作成します。ZIPを開いたとき、`manifest.json` が直下にある構成です。開発中は `dist` を `chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」から読み込みます。
 
-`main` への push では、GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をアーティファクトとして残します。アーティファクト名は ZIP のファイル名と同じです（例: `page-translate-v0.1.0-chrome.zip`）。ダウンロードしたファイルが提出用 ZIP そのものです。
+`main` への push では、GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をアーティファクトとして残します。アーティファクト名は ZIP のファイル名と同じです（例: `page-translate-v1.0.0-chrome.zip`）。ダウンロードしたファイルが提出用 ZIP そのものです。
 
-公開するときは、`src/manifest.ts` の `version` と `package.json` の `version` を同じ値にしたうえで、`v0.1.0` のように `v` と version を続けたタグを push します。GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をそのタグの GitHub Release に添付します。
+公開するときは、`src/manifest.ts` の `version` と `package.json` の `version` を同じ値にしたうえで、`v1.0.0` のように `v` と version を続けたタグを push します。GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をそのタグの GitHub Release に添付します。
 
 プライバシーポリシーは [`docs/privacy.html`](docs/privacy.html) を GitHub Pages で公開します。公開 URL は https://s-hiraoku.github.io/page-translate-extension/privacy.html です。
 
