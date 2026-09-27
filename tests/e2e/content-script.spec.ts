@@ -96,15 +96,14 @@ test.describe("connector", () => {
   const connectorShown = (page: import("@playwright/test").Page) =>
     page.evaluate(() => [...document.querySelectorAll("[data-page-translate-ui]")].some((element) => element.querySelector("svg")));
 
-  test("stays while a panel is open and disappears when the last panel closes", async ({ page, worker, send }) => {
+  test("stays while a panel is open and disappears when the last panel closes", async ({ page, driver, evaluateInExtension, send }) => {
     await page.goto("/fixtures/article.html");
     await send({ type: "SCAN_PAGE" });
-    await worker.evaluate(async () => {
-      const [tab] = await chrome.tabs.query({ active: true });
-      const holder = self as unknown as Record<string, chrome.runtime.Port>;
-      holder.first = chrome.tabs.connect(tab.id!, { name: "panel-presence" });
-      holder.second = chrome.tabs.connect(tab.id!, { name: "panel-presence" });
-      await chrome.tabs.sendMessage(tab.id!, { type: "FOCUS_SEGMENT", segmentId: "segment-2", anchor: { screenY: 300 }, label: "2", color: "#0f8a6c" });
+    await evaluateInExtension(async (tabId) => {
+      const holder = window as unknown as Record<string, chrome.runtime.Port>;
+      holder.first = chrome.tabs.connect(tabId, { name: "panel-presence" });
+      holder.second = chrome.tabs.connect(tabId, { name: "panel-presence" });
+      await chrome.tabs.sendMessage(tabId, { type: "FOCUS_SEGMENT", segmentId: "segment-2", anchor: { screenY: 300 }, label: "2", color: "#0f8a6c" });
     });
     await expect.poll(() => connectorShown(page)).toBe(true);
 
@@ -112,11 +111,11 @@ test.describe("connector", () => {
     await page.waitForTimeout(3000);
     expect(await connectorShown(page)).toBe(true);
 
-    await worker.evaluate(() => (self as unknown as Record<string, chrome.runtime.Port>).first.disconnect());
+    await driver.evaluate(() => (window as unknown as Record<string, chrome.runtime.Port>).first.disconnect());
     await page.waitForTimeout(200);
     expect(await connectorShown(page)).toBe(true);
 
-    await worker.evaluate(() => (self as unknown as Record<string, chrome.runtime.Port>).second.disconnect());
+    await driver.evaluate(() => (window as unknown as Record<string, chrome.runtime.Port>).second.disconnect());
     await expect.poll(() => connectorShown(page)).toBe(false);
   });
 });
@@ -124,19 +123,18 @@ test.describe("connector", () => {
 test.describe("page-click mode", () => {
   type PickEvent = { type: string; segmentId?: string; segment?: CandidateSegment & { manual?: boolean; partial?: boolean } };
 
-  test("reports clicks on cards, adds untranslated text and never follows links", async ({ page, worker, send }) => {
+  test("reports clicks on cards, adds untranslated text and never follows links", async ({ page, driver, evaluateInExtension, send }) => {
     await page.goto("/fixtures/article.html");
     const scan = await send<ScanResult>({ type: "SCAN_PAGE" });
     const targets = scan.segments.slice(0, 3).map((segment, index) => ({ id: segment.id, label: String(index + 1), color: "#2c5cf0" }));
-    await worker.evaluate(async (list) => {
-      const [tab] = await chrome.tabs.query({ active: true });
-      const holder = self as unknown as { events: unknown[]; pick: chrome.runtime.Port };
+    await evaluateInExtension((tabId, list) => {
+      const holder = window as unknown as { events: unknown[]; pick: chrome.runtime.Port };
       holder.events = [];
-      holder.pick = chrome.tabs.connect(tab.id!, { name: "page-pick" });
+      holder.pick = chrome.tabs.connect(tabId, { name: "page-pick" });
       holder.pick.onMessage.addListener((event) => holder.events.push(event));
       holder.pick.postMessage({ type: "targets", targets: list, zoom: 1 });
     }, targets);
-    const events = () => worker.evaluate(() => (self as unknown as { events: PickEvent[] }).events);
+    const events = () => driver.evaluate(() => (window as unknown as { events: PickEvent[] }).events);
     const clickText = async (selector: string) => {
       const target = page.locator(selector).first();
       await target.scrollIntoViewIfNeeded();
