@@ -156,7 +156,7 @@ export async function translateSegments(
  * article: one long text with its own paragraphs; portal: many sections headed by
  * h2/h3 whose text is mostly list items and short summaries; landing: little prose.
  */
-function classifyPage(segments: CandidateSegment[]): "article" | "portal" | "landing" {
+export function classifyPage(segments: CandidateSegment[]): "article" | "portal" | "landing" {
   const main = segments.filter((segment) => segment.region === "main" || segment.region === "unknown");
   const prose = main.filter((segment) => segment.kind !== "heading" && segment.sourceText.length >= 60);
   if (prose.length < 3) return "landing";
