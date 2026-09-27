@@ -25,6 +25,7 @@ Page Translateは、表示中のページから翻訳候補を抽出し、TypeSa
 - TypeSafe Jevが文章ごとに翻訳対象を選定
 - 英作文チェック：自分で書いた英文の訳し戻し、DeepLのお手本英訳との比較、DeepL Writeの添削（有料プランのキー）
 - DeepLの接続先はキーから自動で判定（無料・有料プランを手動で選ぶこともできます）
+- キーボードショートカット：Alt+Shift+Yで翻訳、Alt+Shift+Kでページクリックのオン・オフ（MacはControl+Shift、変更可能）
 
 ### APIキーについて
 

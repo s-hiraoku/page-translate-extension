@@ -9,6 +9,7 @@ import type {
   ExtensionSettings,
   FocusAnchor,
   PagePickEvent,
+  PanelCommand,
   PagePickRequest,
   ProviderStatus,
   ScanResult,
@@ -17,7 +18,7 @@ import type {
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_PRESENCE_PORT, SETTINGS_KEY } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import { isInTargetLanguage, isMainProse } from "./rules";
@@ -42,6 +43,15 @@ const jevOptions: Array<{ value: boolean; label: string }> = [
   { value: true, label: "Jevを使う" },
   { value: false, label: "Jevを使わない" },
 ];
+
+const shortcutRows: Array<{ command: PanelCommand; label: string; short: string }> = [
+  { command: "translate-page", label: "このページを翻訳", short: "翻訳" },
+  { command: "toggle-page-pick", label: "ページクリックのオン・オフ", short: "ページクリック" },
+];
+
+function withShortcut(label: string, shortcut: string | undefined): string {
+  return shortcut ? `${label}（${shortcut}）` : label;
+}
 
 const colors = ["#2c5cf0", "#e0702a", "#0f8a6c", "#9150c8", "#c23d5f", "#6f8517"];
 
@@ -71,6 +81,8 @@ export function SidePanel() {
   const [droppedCount, setDroppedCount] = useState(0);
   /** Page-click mode: clicking translated text on the page selects its card. */
   const [pagePick, setPagePick] = useState(false);
+  /** Current keyboard shortcuts by command name; "" when the reader has none assigned. */
+  const [shortcuts, setShortcuts] = useState<Partial<Record<PanelCommand, string>>>({});
 
   // Keep the page connector attached to the selected card while the panel scrolls or resizes.
   useEffect(() => {
@@ -98,6 +110,40 @@ export function SidePanel() {
         setSettings({ ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings>) });
       }
     });
+  }, []);
+
+  // Shortcuts can change in chrome://extensions/shortcuts while the panel is open.
+  useEffect(() => {
+    void loadShortcuts();
+    const onFocus = () => void loadShortcuts();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  // Keyboard shortcuts arrive through session storage (see the service worker), which
+  // also reaches this panel when the shortcut itself opened it.
+  const commandRef = useRef<(command: PanelCommand) => void>(() => undefined);
+  useEffect(() => {
+    let windowId: number | undefined;
+    const handled = new Set<string>();
+    const take = (value: unknown) => {
+      const request = value as { id?: unknown; command?: unknown; windowId?: unknown; at?: unknown } | undefined;
+      if (!request || typeof request.id !== "string" || !isPanelCommand(request.command)) return;
+      if (windowId === undefined || request.windowId !== windowId || handled.has(request.id)) return;
+      if (typeof request.at !== "number" || Date.now() - request.at > 10_000) return;
+      handled.add(request.id);
+      void chrome.storage.session.remove(PANEL_COMMAND_KEY).catch(() => undefined);
+      commandRef.current(request.command);
+    };
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === "session" && changes[PANEL_COMMAND_KEY]?.newValue) take(changes[PANEL_COMMAND_KEY].newValue);
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    void chrome.windows.getCurrent()
+      .then((current) => { windowId = current.id; return chrome.storage.session.get(PANEL_COMMAND_KEY); })
+      .then((stored) => take(stored[PANEL_COMMAND_KEY]))
+      .catch(() => undefined);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
   // Jev's "skip" decisions are not part of the article: they never appear in the list.
@@ -261,8 +307,28 @@ export function SidePanel() {
     consentResolver.current = null;
   }
 
-  async function startTranslation(): Promise<void> {
-    if (await ensureConsent()) await runTranslation();
+  /** Resolves true once the page was scanned, so page-click mode can start. */
+  async function startTranslation(): Promise<boolean> {
+    return await ensureConsent() ? runTranslation() : false;
+  }
+
+  commandRef.current = (command) => void runCommand(command);
+  async function runCommand(command: PanelCommand): Promise<void> {
+    setSettingsOpen(false);
+    setView("translate");
+    if (busy || consentOpen) return;
+    if (command === "translate-page") {
+      await startTranslation();
+    } else if (scanned) {
+      setPagePick((on) => !on);
+    } else if (await startTranslation()) {
+      setPagePick(true);
+    }
+  }
+
+  async function loadShortcuts(): Promise<void> {
+    const commands = await chrome.commands.getAll().catch(() => []);
+    setShortcuts(Object.fromEntries(commands.flatMap((command) => isPanelCommand(command.name) ? [[command.name, command.shortcut ?? ""]] : [])));
   }
 
   /** Title and main text of the open page, as DeepL context for the writing check. */
@@ -271,8 +337,10 @@ export function SidePanel() {
     return [page.title, page.text].filter(Boolean).join("\n\n");
   }
 
-  async function runTranslation(): Promise<void> {
+  async function runTranslation(): Promise<boolean> {
     generationRef.current += 1;
+    const generation = generationRef.current;
+    let scannedPage = false;
     setBusy(true);
     setError("");
     setEntries([]);
@@ -285,11 +353,12 @@ export function SidePanel() {
       const page = await sendMessage<ScanResult>({ type: "SCAN_ACTIVE_TAB" });
       setPageTitle(page.title);
       setPageUrl(new URL(page.url).hostname);
+      scannedPage = true;
       const candidates = page.segments.filter((segment) => !isInTargetLanguage(segment.sourceText, settings.targetLanguage));
       setDroppedCount(page.excludedCount + page.segments.length - candidates.length);
       if (candidates.length === 0) {
         setStatus("翻訳が必要な本文が見つかりませんでした。");
-        return;
+        return generation === generationRef.current;
       }
 
       // Without Jev, everything the local filters kept is translated. Comparing the two
@@ -349,6 +418,7 @@ export function SidePanel() {
     } finally {
       setBusy(false);
     }
+    return scannedPage && generation === generationRef.current;
   }
 
   async function requestTranslations(segments: CandidateSegment[]): Promise<Array<TranslationEntry & { translatedText: string; translatedHtml: string; state: "translated" }>> {
@@ -476,7 +546,7 @@ export function SidePanel() {
           type="button"
           aria-label={settingsOpen ? "翻訳画面に戻る" : "設定を開く"}
           aria-pressed={settingsOpen}
-          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) void checkProviders(); }}
+          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) { void checkProviders(); void loadShortcuts(); } }}
         >
           <Icon name="settings" />
         </button>
@@ -506,6 +576,20 @@ export function SidePanel() {
               </button>
             ))}
           </div>
+
+          <h3 className="settings-section">キーボードショートカット</h3>
+          <dl className="shortcut-list">
+            {shortcutRows.map((row) => (
+              <div key={row.command}>
+                <dt>{row.label}</dt>
+                <dd>{shortcuts[row.command] ? <kbd>{shortcuts[row.command]}</kbd> : <span className="badge missing">未設定</span>}</dd>
+              </div>
+            ))}
+          </dl>
+          <button className="text-button" type="button" onClick={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })}>
+            <Icon name="settings" />ショートカットを変更
+          </button>
+          <p className="field-hint">Chromeの拡張機能のショートカット設定で変更できます。ほかの拡張機能と重なっているキーは割り当てられず「未設定」になります。</p>
 
           <h3 className="settings-section" id="jev-label">翻訳する本文の判定</h3>
           <div className="mode-switch" role="radiogroup" aria-labelledby="jev-label">
@@ -606,7 +690,7 @@ export function SidePanel() {
               </button>
             </div>
 
-            <button className="button primary block translate-button" type="button" onClick={() => void startTranslation()} disabled={busy} aria-busy={busy}>
+            <button className="button primary block translate-button" type="button" onClick={() => void startTranslation()} disabled={busy} aria-busy={busy} title={withShortcut("このページを翻訳", shortcuts["translate-page"])}>
               {busy ? <span className="spinner" aria-hidden="true" /> : <Icon name="translate" />}
               {busy ? "翻訳しています…" : "このページを翻訳"}
             </button>
@@ -636,7 +720,7 @@ export function SidePanel() {
                   type="button"
                   className={`pick-toggle ${pagePick ? "active" : ""}`}
                   aria-pressed={pagePick}
-                  title="ページ上の本文をクリックして、対応する訳文を表示します"
+                  title={withShortcut("ページ上の本文をクリックして、対応する訳文を表示します", shortcuts["toggle-page-pick"])}
                   onClick={() => setPagePick((on) => !on)}
                 >
                   <Icon name="pointer" />ページクリック
@@ -695,6 +779,13 @@ export function SidePanel() {
                 <li><span>2</span>{settings.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
                 <li><span>3</span>DeepLで翻訳</li>
               </ol>
+              {(shortcuts["translate-page"] || shortcuts["toggle-page-pick"]) && (
+                <p className="shortcut-hint">
+                  {shortcutRows.filter((row) => shortcuts[row.command]).map((row) => (
+                    <span key={row.command}>{row.short} <kbd>{shortcuts[row.command]}</kbd></span>
+                  ))}
+                </p>
+              )}
             </section>
           )}
 

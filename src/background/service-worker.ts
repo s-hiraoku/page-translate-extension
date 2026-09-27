@@ -2,7 +2,7 @@ import type {
   ExtensionMessage,
   RuntimeError,
 } from "../shared/types";
-import { DEFAULT_SETTINGS, PROVIDER_KEYS_KEY, SETTINGS_KEY } from "../shared/types";
+import { DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type PanelCommandRequest } from "../shared/types";
 import { classifyCandidates, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
@@ -18,6 +18,16 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+// Keyboard shortcuts: open the side panel, then leave the command for it in session storage.
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (!isPanelCommand(command) || tab?.windowId === undefined) return;
+  const windowId = tab.windowId;
+  // Open before any await: the shortcut counts as a user gesture only until then.
+  chrome.sidePanel.open({ windowId }).catch(() => undefined);
+  const request: PanelCommandRequest = { id: crypto.randomUUID(), command, windowId, at: Date.now() };
+  void storageReady.then(() => chrome.storage.session.set({ [PANEL_COMMAND_KEY]: request }));
+});
 
 chrome.runtime.onMessage.addListener((rawMessage: unknown, sender, sendResponse) => {
   if (!isExtensionMessage(rawMessage)) return;
