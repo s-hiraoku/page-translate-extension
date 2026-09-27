@@ -38,12 +38,23 @@ export async function classifyCandidates(
   if (!typesafeApiKey) throw new Error("設定画面でTypeSafe JevのAPIキーを登録してください。");
   validateSegments(segments);
 
+  // Not every page is a single article. Landing pages are short headlines and taglines;
+  // home/portal pages (e.g. the Wikipedia Main Page) are several sections of summaries
+  // and news items. Asking Jev for "the main article" there skips or questions them all.
+  const pageKind = classifyPage(segments);
+  const task = {
+    article: "Select the page's main article content for translation. Site chrome and peripheral content must be skipped.",
+    portal: "This is a home or portal page made of several content sections. Select the content of every section for translation: section headings, featured summaries, news items, facts and descriptions written as sentences. Site chrome and bare link lists must be skipped.",
+    landing: "This is a landing or product page without a long article. Select its visible content for translation: headlines, taglines, feature names and descriptions, and body copy. Site chrome must be skipped.",
+  }[pageKind];
+
   const decisions: DecisionResult["decisions"] = [];
   for (const batch of batchByCountAndSize(segments, 16, 22_000, (item) => item.sourceText.length)) {
     const state = {
       target_language: targetLanguage === "JA" ? "Japanese" : "English",
       page_title: pageTitle.slice(0, 200),
-      task: "Select only the page's main article content for translation. Site chrome and peripheral content must be skipped.",
+      task,
+      page_kind: pageKind,
       main_content_detected: pageInfo.mainContentDetected,
       article_title: pageInfo.articleTitle.slice(0, 200),
       region_legend: {
@@ -68,17 +79,19 @@ export async function classifyCandidates(
     const questions = Object.fromEntries(batch.map((segment, index) => [`candidate_${index + 1}`, {
       type: "choice",
       instructions: [
-        `Decide whether candidate ${index + 1} (id ${segment.id}) belongs to the main article of this page and should be translated into the target language.`,
-        "Translate the article title, its headings, and body text (paragraphs, list items, quotes, figure captions, table cells) that a reader of the article would want translated.",
-        "Skip site chrome and peripheral content: navigation, menus, headers/footers, sidebars, related or recommended article lists, ads, share/follow prompts, cookie or newsletter notices, comment sections, bylines/dates/tag lists/read-time metadata, author bio boxes, and standalone link or button labels.",
-        "Also skip code, identifiers, URLs, proper names alone, and text already written in the target language.",
+        `Decide whether candidate ${index + 1} (id ${segment.id}) is content of this page that a reader would want translated into the target language.`,
+        "Translate the article title, its headings, and body text (paragraphs, list items, quotes, figure captions, table cells).",
+        "On a landing or product page (page_kind 'landing'), short headlines, taglines and feature labels such as 'Fewer Collisions' or 'Makes every drive easier' are content: translate them; being short is not a reason for review.",
+        "On a home or portal page (page_kind 'portal'), summaries of featured articles, news items, 'did you know' facts and 'on this day' entries in region 'main' are content even though they link to other pages: translate them.",
+        "Skip site chrome and peripheral content: navigation, menus, headers/footers, sidebars, related or recommended article lists outside region 'main' or made only of link titles, ads, share/follow prompts, cookie or newsletter notices, comment sections, bylines/dates/tag lists/read-time metadata, author bio boxes, and standalone link or button labels.",
+        "Also skip code, identifiers, URLs, proper names or product names alone (e.g. 'Model Y'), numbers alone, and text already written in the target language.",
         "Use region, is_article_title, kind and link_density as structural evidence (region 'main' and low link_density strongly suggest article content; high link_density suggests link lists), but let the text itself decide when the evidence conflicts.",
-        "Choose review only when the text is genuinely ambiguous, e.g. mixed-language or context-dependent.",
+        "Choose review only when the text is genuinely ambiguous, e.g. mixed-language. When unsure between translate and skip for readable natural-language text, choose translate.",
       ].join(" "),
       criteria: {
-        translate: "Part of the main article: title, heading or body text in a language other than the target language.",
-        skip: "Not part of the main article (navigation, sidebar, footer, related links, ads, prompts, metadata, controls), or code/identifiers, or already in the target language.",
-        review: "Plausibly article content but ambiguous: mixed-language or context-dependent text where automatic inclusion could change meaning.",
+        translate: "Page content a reader came for (article text; or section headings, summaries and items on portal and landing pages) in a language other than the target language.",
+        skip: "Site chrome (navigation, sidebar, footer, bare link lists, ads, prompts, metadata, controls), code/identifiers, names alone, or text already in the target language.",
+        review: "Plausibly content but ambiguous: mixed-language or context-dependent text where automatic inclusion could change meaning.",
       },
     }]));
 
@@ -94,7 +107,9 @@ export async function classifyCandidates(
       const choice = answer?.choice;
       const confidence = Number(answer?.confidence ?? 0);
       const decision: Decision = choice === "translate" || choice === "skip" || choice === "review" ? choice : "review";
-      decisions.push({ id: segment.id, decision: confidence < 0.62 ? "review" : decision, confidence });
+      // An unsure "skip" may hide content, so it becomes review (translated and flagged).
+      // An unsure "translate" stays translate.
+      decisions.push({ id: segment.id, decision: decision === "skip" && confidence < 0.62 ? "review" : decision, confidence });
     });
   }
   return { decisions };
@@ -140,6 +155,20 @@ export async function translateSegments(
     });
   }
   return { translations };
+}
+
+/**
+ * article: one long text with its own paragraphs; portal: many sections headed by
+ * h2/h3 whose text is mostly list items and short summaries; landing: little prose.
+ */
+function classifyPage(segments: CandidateSegment[]): "article" | "portal" | "landing" {
+  const main = segments.filter((segment) => segment.region === "main" || segment.region === "unknown");
+  const prose = main.filter((segment) => segment.kind !== "heading" && segment.sourceText.length >= 60);
+  if (prose.length < 3) return "landing";
+  const paragraphs = prose.filter((segment) => segment.kind === "paragraph" && segment.sourceText.length >= 120).length;
+  const sections = main.filter((segment) => segment.kind === "heading" && !segment.isArticleTitle).length;
+  // Articles are mostly paragraphs; portals are mostly items spread over several sections.
+  return sections >= 4 && paragraphs < prose.length / 2 ? "portal" : "article";
 }
 
 async function readProviderKeys(): Promise<ProviderKeys> {

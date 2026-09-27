@@ -20,10 +20,12 @@ const NOISE_TOKENS = [
 ];
 const POSITIVE_PATTERN = /article|post|entry|content|story|main|body|text|blog|prose|markdown|rich-?text/i;
 const NOISE_SET = new Set(NOISE_TOKENS);
+/** Metadata blocks are short; a container holding more text than this is prose, whatever its class says. */
+const MAX_META_TEXT = 200;
 /** Article metadata (bylines, dates, tag lists, tables of contents): part of the page, not the text. */
 const META_TOKENS = new Set([
   "byline", "author", "authors", "meta", "metadata", "date", "dateline", "published", "updated", "timestamp",
-  "tags", "tag", "taglist", "category", "categories", "toc", "readtime", "reading", "breadcrumb", "breadcrumbs",
+  "tags", "tag", "taglist", "category", "categories", "toc", "readtime", "readingtime", "breadcrumb", "breadcrumbs",
   "credit", "credits", "copyright",
 ]);
 /** Short strings that are dates, times or read-time labels rather than prose. */
@@ -73,8 +75,45 @@ export function detectMainContent(doc: Document = document): MainContentInfo {
     best = semantic && normalize(semantic.textContent ?? "").length >= MIN_MAIN_TEXT ? semantic : null;
   }
   if (best) best = expandToSemanticContainer(best);
+  if (best) best = coverProse(doc, best);
 
   return { root: best, title: findTitle(doc, best) };
+}
+
+/**
+ * Portal and multi-section pages (e.g. the Wikipedia Main Page) have several
+ * content boxes side by side; scoring picks one of them. When the chosen root
+ * holds less than half of the page's prose, widen it to the smallest element
+ * that contains all of it, or give up on a root (lenient filtering).
+ */
+function coverProse(doc: Document, root: HTMLElement): HTMLElement | null {
+  const prose = [...doc.querySelectorAll<HTMLElement>("p, li, dd, blockquote, td")].filter((element) => {
+    if (element.closest("nav, header, footer, aside, [role='navigation'], [role='banner'], [role='contentinfo'], [role='complementary']")) return false;
+    if (element.matches("li, td, dd") && element.querySelector("p, li")) return false;
+    const text = normalize(element.textContent ?? "");
+    return text.length >= 80 && linkDensity(element) < 0.5 && !hasNoisyAncestor(element);
+  });
+  let total = 0;
+  let inside = 0;
+  for (const element of prose) {
+    const length = normalize(element.textContent ?? "").length;
+    total += length;
+    if (root.contains(element)) inside += length;
+  }
+  if (total === 0 || inside / total >= 0.5) return root;
+
+  let common: HTMLElement | null = root;
+  for (const element of prose) {
+    while (common && !common.contains(element)) common = common.parentElement;
+  }
+  return common && common !== doc.body && common !== doc.documentElement ? common : null;
+}
+
+function hasNoisyAncestor(element: HTMLElement): boolean {
+  for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+    if (hasNoiseHint(node)) return true;
+  }
+  return false;
 }
 
 /**
@@ -148,11 +187,16 @@ function landmarkRegion(node: HTMLElement, inRoot: boolean): SegmentRegion | nul
   if (tokens.some((token) => ["share", "sharing", "social", "sns", "follow"].includes(token))) return "share";
   if (tokens.some((token) => ["nav", "navbar", "navigation", "menu", "breadcrumb", "breadcrumbs", "pagination", "pager", "toolbar"].includes(token))) return "navigation";
   if (tokens.some((token) => ["sidebar", "widget"].includes(token))) return "sidebar";
-  if (tag === "TIME" || tag === "ADDRESS" || node.getAttribute("rel") === "author") return "meta";
-  if (tokens.some((token) => META_TOKENS.has(token))) return "meta";
+  if (isMetadataBlock(node, tag, tokens)) return "meta";
   if (!inRoot && tokens.some((token) => token === "footer")) return "footer";
   if (!inRoot && tokens.some((token) => token === "masthead" || token === "header")) return "header";
   return null;
+}
+
+function isMetadataBlock(node: HTMLElement, tag: string, tokens: string[]): boolean {
+  const hinted = tag === "TIME" || tag === "ADDRESS" || node.getAttribute("rel") === "author"
+    || tokens.some((token, index) => META_TOKENS.has(token) || META_TOKENS.has(token + (tokens[index + 1] ?? "")));
+  return hinted && normalize(node.textContent ?? "").length <= MAX_META_TEXT;
 }
 
 export function segmentKind(element: HTMLElement): SegmentKind {
@@ -182,6 +226,8 @@ export function linkDensity(element: HTMLElement): number {
 export function isHardNoise(region: SegmentRegion, kind: SegmentKind, density: number, hasMainRoot: boolean, text = ""): boolean {
   if (region !== "main" && region !== "outside" && region !== "unknown") return true;
   if (text.length <= 48 && METADATA_TEXT.test(text.trim())) return true;
+  // Short blocks that are nothing but a link ("Archive", "More featured articles") are navigation.
+  if (density >= 0.9 && text.length < 60 && kind !== "heading") return true;
   // Once the article is known, everything around it is site chrome.
   if (hasMainRoot && region !== "main") return true;
   // Standalone links and buttons ("Read more", "Share", tag chips) are UI labels, not prose.

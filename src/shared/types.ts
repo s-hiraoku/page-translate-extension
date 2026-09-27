@@ -1,5 +1,6 @@
 export type TargetLanguage = "JA" | "EN";
 export type DisplayMode = "source-panel" | "inline";
+export type ThemePreference = "system" | "light" | "dark";
 export type Decision = "translate" | "skip" | "review";
 export type SegmentState = "pending" | "translated" | "review" | "skipped" | "error";
 export type DeepLPlan = "free" | "pro";
@@ -33,6 +34,10 @@ export interface CandidateSegment {
   /** Share of the text that is link text (0–1). */
   linkDensity: number;
   isArticleTitle: boolean;
+  /** Added by the reader in page-click mode rather than by the page scan. */
+  manual?: boolean;
+  /** A selected part of the element's text; never written back into the page. */
+  partial?: boolean;
 }
 
 export interface ScanResult {
@@ -55,12 +60,15 @@ export interface TranslationEntry extends CandidateSegment {
   translatedText?: string;
   translatedHtml?: string;
   reason?: string;
+  /** Jev answered "review": translated automatically, flagged in the panel. */
+  uncertain?: boolean;
 }
 
 export interface ExtensionSettings {
   targetLanguage: TargetLanguage;
   displayMode: DisplayMode;
   deeplPlan: DeepLPlan;
+  theme: ThemePreference;
 }
 
 export const SETTINGS_KEY = "pageTranslateSettings";
@@ -71,6 +79,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   targetLanguage: "JA",
   displayMode: "source-panel",
   deeplPlan: "free",
+  theme: "system",
 };
 
 export type ExtensionMessage =
@@ -83,8 +92,29 @@ export type ExtensionMessage =
   | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage }
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
-  | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string }
+  | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string; scroll?: boolean }
   | { type: "UPDATE_FOCUS_ANCHOR"; anchor: FocusAnchor };
+
+/** Port name for page-click mode: the side panel connects to the tab while the mode is on. */
+export const PAGE_PICK_PORT = "page-pick";
+/** Held open by the side panel while it shows a connector in a tab; closing the panel drops it. */
+export const PANEL_PRESENCE_PORT = "panel-presence";
+
+export interface PagePickTarget {
+  id: string;
+  label: string;
+  color: string;
+}
+
+/** Side panel → page over the page-pick port. */
+export type PagePickRequest = { type: "targets"; targets: PagePickTarget[]; zoom: number };
+
+/** Page → side panel over the page-pick port. */
+export type PagePickEvent =
+  | { type: "picked"; segmentId: string; anchor: FocusAnchor | null }
+  /** Text that is not a translated card yet. `followingIds` are known segments after it, in page order. */
+  | { type: "added"; segment: CandidateSegment; followingIds: string[]; anchor: FocusAnchor | null }
+  | { type: "exit" };
 
 export interface RuntimeError {
   error: string;

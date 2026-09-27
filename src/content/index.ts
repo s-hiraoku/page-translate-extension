@@ -1,5 +1,6 @@
-import type { CandidateSegment, FocusAnchor, ScanResult, SegmentRegion, TranslationEntry } from "../shared/types";
-import { classifyRegion, detectMainContent, isHardNoise, linkDensity, segmentKind } from "./main-content";
+import type { CandidateSegment, FocusAnchor, PagePickEvent, PagePickRequest, PagePickTarget, ScanResult, SegmentRegion, TranslationEntry } from "../shared/types";
+import { PAGE_PICK_PORT, PANEL_PRESENCE_PORT } from "../shared/types";
+import { classifyRegion, detectMainContent, isHardNoise, linkDensity, segmentKind, type MainContentInfo } from "./main-content";
 
 const BLOCK_SELECTOR = [
   "h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote",
@@ -51,11 +52,11 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return;
   }
   if (type === "FOCUS_SEGMENT") {
-    const { segmentId, anchor, zoom, label, color } = message as unknown as {
-      segmentId: string; anchor?: FocusAnchor; zoom?: number; label?: string; color?: string;
+    const { segmentId, anchor, zoom, label, color, scroll } = message as unknown as {
+      segmentId: string; anchor?: FocusAnchor; zoom?: number; label?: string; color?: string; scroll?: boolean;
     };
     if (typeof zoom === "number" && zoom > 0) tabZoom = zoom;
-    sendResponse({ focused: focusSegment(segmentId, anchor, { label, color }) });
+    sendResponse({ focused: focusSegment(segmentId, anchor, { label, color }, scroll !== false) });
     return;
   }
   if (type === "UPDATE_FOCUS_ANCHOR") {
@@ -82,8 +83,10 @@ const REGION_LABELS: Partial<Record<SegmentRegion, string>> = {
 };
 
 function scanPage(): ScanResult {
+  stopPagePick();
   pageElements.clear();
   const mainContent = detectMainContent();
+  lastMainContent = mainContent;
   const matches = [...document.querySelectorAll<HTMLElement>(BLOCK_SELECTOR)].filter((element) => {
     if (element.closest(EXCLUDED_SELECTOR) || !isVisible(element)) return false;
     const text = normalizeText(element.innerText || element.textContent || "");
@@ -224,7 +227,7 @@ function hasAncestorFromSet(element: HTMLElement, candidates: Set<HTMLElement>):
 function applyTranslations(entries: TranslationEntry[]): number {
   let applied = 0;
   for (const entry of entries) {
-    if (entry.state !== "translated" || !entry.translatedHtml) continue;
+    if (entry.state !== "translated" || !entry.translatedHtml || entry.partial) continue;
     const element = pageElements.get(entry.id);
     if (!element?.isConnected) continue;
     if (!originals.has(entry.id)) {
@@ -263,7 +266,7 @@ function anchorToClientY(anchor: FocusAnchor | undefined): number | null {
   return Number.isFinite(y) ? y : null;
 }
 
-function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: string; color?: string } = {}): boolean {
+function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: string; color?: string } = {}, scroll = true): boolean {
   const element = pageElements.get(id);
   if (!element?.isConnected) return false;
   clearFocusOverlay();
@@ -274,11 +277,14 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
   const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Bring the source next to the card: its anchor line should sit at the card's height.
-  if (hasScrollableAncestor(element)) {
-    element.scrollIntoView({ behavior: "instant", block: "center" });
+  // In page-click mode the reader just clicked the source, so the page stays put.
+  if (scroll) {
+    if (hasScrollableAncestor(element)) {
+      element.scrollIntoView({ behavior: "instant", block: "center" });
+    }
+    const delta = anchorY(element.getBoundingClientRect()) - targetY;
+    if (Math.abs(delta) > 2) window.scrollBy({ top: delta, behavior: smooth ? "smooth" : "instant" });
   }
-  const delta = anchorY(element.getBoundingClientRect()) - targetY;
-  if (Math.abs(delta) > 2) window.scrollBy({ top: delta, behavior: smooth ? "smooth" : "instant" });
 
   const color = appearance.color && /^#[0-9a-f]{6}$/i.test(appearance.color)
     ? appearance.color
@@ -379,6 +385,244 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
   loop();
   focusOverlay = state;
   return true;
+}
+
+/**
+ * Page-click mode. While the side panel holds a page-pick port open, clicking a
+ * translated source element selects its card instead of activating the page.
+ * Closing the panel disconnects the port, which always ends the mode.
+ */
+let pagePick: { port: chrome.runtime.Port; targets: Map<HTMLElement, PagePickTarget>; dispose: () => void } | null = null;
+
+/** Side panels currently connected to this page; the connector lives only while one is open. */
+let panelPorts = 0;
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PANEL_PRESENCE_PORT) return;
+  panelPorts += 1;
+  port.onDisconnect.addListener(() => {
+    panelPorts = Math.max(0, panelPorts - 1);
+    if (panelPorts === 0) clearFocusOverlay();
+  });
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PAGE_PICK_PORT) return;
+  port.onMessage.addListener((message: PagePickRequest) => {
+    if (message?.type !== "targets" || !Array.isArray(message.targets)) return;
+    if (typeof message.zoom === "number" && message.zoom > 0) tabZoom = message.zoom;
+    startPagePick(port, message.targets);
+  });
+  port.onDisconnect.addListener(() => {
+    if (pagePick?.port === port) stopPagePick();
+  });
+});
+
+/** Main content of the last scan, reused to describe blocks added in page-click mode. */
+let lastMainContent: MainContentInfo = { root: null, title: null };
+let manualCount = 0;
+const ADD_COLOR = "#8891a4";
+
+function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void {
+  stopPagePick();
+  const targets = new Map<HTMLElement, PagePickTarget>();
+  for (const target of list) {
+    const element = pageElements.get(target.id);
+    if (element?.isConnected && typeof target.color === "string" && /^#[0-9a-f]{6}$/i.test(target.color)) {
+      targets.set(element, target);
+    }
+  }
+
+  const root = document.createElement("div");
+  root.dataset.pageTranslateUi = "true";
+  root.setAttribute("aria-hidden", "true");
+  Object.assign(root.style, { position: "fixed", inset: "0", zIndex: "2147483645", pointerEvents: "none" });
+  const hover = document.createElement("div");
+  Object.assign(hover.style, {
+    position: "fixed", display: "none", boxSizing: "border-box", borderRadius: "6px",
+    border: "2px dashed", transition: "all .08s ease-out",
+  });
+  const hoverLabel = document.createElement("span");
+  hoverLabel.textContent = "＋ 翻訳を追加";
+  Object.assign(hoverLabel.style, {
+    position: "absolute", top: "-11px", right: "8px", padding: "1px 7px", borderRadius: "999px",
+    background: ADD_COLOR, color: "#fff", font: "600 11px/18px system-ui, sans-serif", whiteSpace: "nowrap",
+  });
+  hover.append(hoverLabel);
+  const hint = document.createElement("div");
+  hint.textContent = "ページクリック：クリックで訳文を表示・追加 ／ 文字を選択して翻訳 · Escで終了";
+  Object.assign(hint.style, {
+    position: "fixed", right: "12px", bottom: "12px", padding: "7px 12px", borderRadius: "999px",
+    background: "#16203a", color: "#fff", font: "500 12px/1.4 system-ui, sans-serif", boxShadow: "0 4px 14px #0003",
+  });
+  root.append(hover, hint);
+  document.documentElement.append(root);
+
+  const style = document.createElement("style");
+  style.dataset.pageTranslateUi = "true";
+  style.textContent = "[data-page-translate-pick]{cursor:pointer!important}";
+  document.head.append(style);
+  for (const element of targets.keys()) element.dataset.pageTranslatePick = "";
+
+  let hovered: HTMLElement | null = null;
+  /** Clicks right after a handled text selection belong to that selection. */
+  let ignoreClickUntil = 0;
+  const findTarget = (node: EventTarget | null): HTMLElement | null => {
+    let current = node instanceof Element ? node : null;
+    while (current) {
+      if (current instanceof HTMLElement && targets.has(current)) return current;
+      current = current.parentElement;
+    }
+    return null;
+  };
+  const drawHover = () => {
+    if (!hovered?.isConnected) {
+      hover.style.display = "none";
+      return;
+    }
+    const rect = hovered.getBoundingClientRect();
+    const target = targets.get(hovered);
+    const color = target?.color ?? ADD_COLOR;
+    hoverLabel.style.display = target ? "none" : "block";
+    Object.assign(hover.style, {
+      display: "block", left: `${rect.left - 4}px`, top: `${rect.top - 4}px`,
+      width: `${rect.width + 8}px`, height: `${rect.height + 8}px`, borderColor: color, background: `${color}0f`,
+    });
+  };
+  const anchorFor = (event: MouseEvent, element: HTMLElement): FocusAnchor | null => {
+    const zoom = pageZoomFactor();
+    const top = event.screenY - event.clientY * zoom;
+    return Number.isFinite(top) ? { screenY: top + anchorY(element.getBoundingClientRect()) * zoom } : null;
+  };
+  const add = (event: MouseEvent, element: HTMLElement, selected?: string) => {
+    const segment = describeForPanel(element, selected);
+    port.postMessage({ type: "added", segment, followingIds: idsAfter(element), anchor: anchorFor(event, element) } satisfies PagePickEvent);
+  };
+  const onOver = (event: PointerEvent) => {
+    hovered = findTarget(event.target) ?? pickableBlock(event.target);
+    drawHover();
+  };
+  const onClick = (event: MouseEvent) => {
+    if (event.button !== 0) return;
+    if (performance.now() < ignoreClickUntil) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    const element = findTarget(event.target);
+    const block = element ? null : pickableBlock(event.target);
+    if (!element && !block) return;
+    // Keep links and page handlers from firing: this click is for the translation.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (block) return add(event, block);
+    const target = element ? targets.get(element) : undefined;
+    if (!element || !target) return;
+    port.postMessage({ type: "picked", segmentId: target.id, anchor: anchorFor(event, element) } satisfies PagePickEvent);
+  };
+  const onMouseUp = (event: MouseEvent) => {
+    const selection = getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+    const text = normalizeText(selection.toString());
+    if (text.length < 2 || text.length > 5000 || !/\p{L}/u.test(text)) return;
+    const block = pickableBlock(selection.getRangeAt(0).startContainer);
+    if (!block) return;
+    ignoreClickUntil = performance.now() + 400;
+    const whole = normalizeText(block.innerText || block.textContent || "");
+    add(event, block, text === whole ? undefined : text);
+    selection.removeAllRanges();
+  };
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    port.postMessage({ type: "exit" } satisfies PagePickEvent);
+    stopPagePick();
+  };
+  const onScroll = () => drawHover();
+  window.addEventListener("pointerover", onOver, true);
+  window.addEventListener("click", onClick, true);
+  window.addEventListener("mouseup", onMouseUp, true);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+
+  pagePick = {
+    port,
+    targets,
+    dispose: () => {
+      window.removeEventListener("pointerover", onOver, true);
+      window.removeEventListener("click", onClick, true);
+      window.removeEventListener("mouseup", onMouseUp, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("scroll", onScroll, { capture: true });
+      for (const element of targets.keys()) delete element.dataset.pageTranslatePick;
+      style.remove();
+      root.remove();
+    },
+  };
+}
+
+/**
+ * The block a click on untranslated text refers to: the closest paragraph-like
+ * element, or the nearest element with a reasonable amount of text.
+ */
+function pickableBlock(node: EventTarget | Node | null): HTMLElement | null {
+  const start = node instanceof Element ? node : node instanceof Node ? node.parentElement : null;
+  if (!start || start.closest("[data-page-translate-ui], input, textarea, select, [contenteditable='true']")) return null;
+  const within = (element: Element | null): element is HTMLElement => {
+    if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement) return false;
+    const text = normalizeText(element.innerText || element.textContent || "");
+    return text.length >= 2 && text.length <= 5000 && /\p{L}/u.test(text);
+  };
+  const block = start.closest(BLOCK_SELECTOR);
+  if (within(block)) return block;
+  for (let element: Element | null = start; element; element = element.parentElement) {
+    if (within(element)) return element;
+  }
+  return null;
+}
+
+/** Describes a block (or a selection inside it) for the side panel, registering it for focusing. */
+function describeForPanel(element: HTMLElement, selected?: string): CandidateSegment {
+  let id = selected ? undefined : [...pageElements].find(([, known]) => known === element)?.[0];
+  if (!id) {
+    manualCount += 1;
+    id = `manual-${manualCount}`;
+    pageElements.set(id, element);
+  }
+  const text = selected ?? normalizeText(element.innerText || element.textContent || "");
+  const kind = segmentKind(element);
+  const tag = element.tagName.toLowerCase();
+  return {
+    id,
+    order: -1,
+    location: selected ? `選択テキスト · ${tag}` : `追加 · ${kind === "heading" ? "見出し" : kind === "control" ? "リンク・ボタン" : tag}`,
+    tagName: tag,
+    sourceText: text.slice(0, 12_000),
+    sourceHtml: selected ? escapeHtml(text).slice(0, 20_000) : sanitizeTranslatedHtml(element.innerHTML).slice(0, 20_000),
+    region: classifyRegion(element, lastMainContent),
+    kind,
+    linkDensity: Math.round(linkDensity(element) * 100) / 100,
+    isArticleTitle: false,
+    manual: true,
+    partial: Boolean(selected),
+  };
+}
+
+/** Known segments that come after the element in page order, so the panel can insert its card in place. */
+function idsAfter(element: HTMLElement): string[] {
+  const ids: string[] = [];
+  for (const [id, known] of pageElements) {
+    if (known !== element && element.compareDocumentPosition(known) & Node.DOCUMENT_POSITION_FOLLOWING && !element.contains(known)) ids.push(id);
+  }
+  return ids;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function stopPagePick(): void {
+  pagePick?.dispose();
+  pagePick = null;
 }
 
 /** The point on the source that the connector attaches to (first line of text). */

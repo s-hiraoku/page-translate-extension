@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type {
   CandidateSegment,
   Decision,
@@ -6,13 +6,17 @@ import type {
   ExtensionMessage,
   ExtensionSettings,
   FocusAnchor,
+  PagePickEvent,
+  PagePickRequest,
   ScanResult,
   SegmentState,
   TargetLanguage,
+  ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, SETTINGS_KEY } from "../shared/types";
-import { Icon } from "./Icon";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_PRESENCE_PORT, SETTINGS_KEY } from "../shared/types";
+import { Icon, type IconName } from "./Icon";
+import { applyTheme, cachedTheme } from "./theme";
 
 interface DecisionResult {
   decisions: Array<{ id: string; decision: Decision; confidence: number }>;
@@ -26,6 +30,12 @@ interface ProviderStatus {
   providers: { jev: boolean; deepl: boolean };
 }
 
+const themeOptions: Array<{ value: ThemePreference; label: string; icon: IconName }> = [
+  { value: "system", label: "システム", icon: "monitor" },
+  { value: "light", label: "ライト", icon: "sun" },
+  { value: "dark", label: "ダーク", icon: "moon" },
+];
+
 const colors = ["#2c5cf0", "#e0702a", "#0f8a6c", "#9150c8", "#c23d5f", "#6f8517"];
 
 /** Screen Y of the side panel viewport's top edge, learned from pointer events. */
@@ -34,7 +44,7 @@ window.addEventListener("pointermove", (event) => { panelScreenTop = event.scree
 window.addEventListener("pointerdown", (event) => { panelScreenTop = event.screenY - event.clientY; }, { passive: true });
 
 export function SidePanel() {
-  const [settings, setSettings] = useState<ExtensionSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<ExtensionSettings>(() => ({ ...DEFAULT_SETTINGS, theme: cachedTheme() }));
   const [entries, setEntries] = useState<TranslationEntry[]>([]);
   const [pageTitle, setPageTitle] = useState("");
   const [pageUrl, setPageUrl] = useState("");
@@ -50,6 +60,8 @@ export function SidePanel() {
   const [consentOpen, setConsentOpen] = useState(false);
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
+  /** Page-click mode: clicking translated text on the page selects its card. */
+  const [pagePick, setPagePick] = useState(false);
 
   // Keep the page connector attached to the selected card while the panel scrolls or resizes.
   useEffect(() => {
@@ -82,6 +94,128 @@ export function SidePanel() {
   // Jev's "skip" decisions are not part of the article: they never appear in the list.
   const visibleEntries = useMemo(() => entries.filter((entry) => entry.state !== "skipped"), [entries]);
   const hiddenCount = droppedCount + entries.length - visibleEntries.length;
+  useEffect(() => applyTheme(settings.theme), [settings.theme]);
+
+  const pickable = useMemo(
+    () => visibleEntries.flatMap((entry, index) => entry.state === "translated" ? [{ id: entry.id, label: String(index + 1), color: entryColor(index) }] : []),
+    [visibleEntries],
+  );
+  const pickableKey = pickable.map((target) => target.id).join(",");
+  const visibleRef = useRef(visibleEntries);
+  visibleRef.current = visibleEntries;
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  // While page-click mode is on, hold a port to the tab. The page reports clicks on
+  // translated text through it; closing the panel drops the port and ends the mode.
+  useEffect(() => {
+    if (!pagePick || pickable.length === 0) return;
+    let port: chrome.runtime.Port | null = null;
+    let cancelled = false;
+    void (async () => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (cancelled || tab?.id === undefined) return;
+      const zoom = await chrome.tabs.getZoom(tab.id).catch(() => 1);
+      if (cancelled) return;
+      port = chrome.tabs.connect(tab.id, { name: PAGE_PICK_PORT });
+      port.onMessage.addListener((message: PagePickEvent) => {
+        if (message.type === "exit") setPagePick(false);
+        else if (message.type === "picked") void revealPicked(message.segmentId, message.anchor);
+        else if (message.type === "added") void addFromPage(message.segment, message.followingIds, message.anchor);
+      });
+      port.onDisconnect.addListener(() => {
+        if (cancelled) return;
+        setPagePick(false);
+        setError("ページとの接続が切れたため、ページクリックを終了しました。");
+      });
+      port.postMessage({ type: "targets", targets: pickable, zoom } satisfies PagePickRequest);
+    })().catch((caught: unknown) => {
+      setPagePick(false);
+      setError(errorMessage(caught));
+    });
+    return () => {
+      cancelled = true;
+      port?.disconnect();
+    };
+    // pickableKey captures every change to the targets.
+  }, [pagePick, pickableKey]);
+
+  useEffect(() => {
+    if (pickable.length === 0) setPagePick(false);
+  }, [pickable.length]);
+
+  /**
+   * Text without a translated card was clicked or selected on the page: add a card in
+   * page order (or reuse the hidden one), translate it with DeepL and link it.
+   */
+  async function addFromPage(segment: CandidateSegment, followingIds: string[], anchor: FocusAnchor | null): Promise<void> {
+    const existing = entriesRef.current.find((entry) => entry.id === segment.id);
+    if (existing && (existing.state === "translated" || existing.reason === ADDING)) {
+      await revealPicked(existing.id, anchor);
+      return;
+    }
+    const entry: TranslationEntry = { ...segment, state: "pending", reason: ADDING, uncertain: false };
+    const following = new Set(followingIds);
+    const current = entriesRef.current;
+    let next: TranslationEntry[];
+    if (existing) {
+      next = current.map((item) => item.id === entry.id ? entry : item);
+    } else {
+      const at = current.findIndex((item) => following.has(item.id));
+      next = at < 0 ? [...current, entry] : [...current.slice(0, at), entry, ...current.slice(at)];
+    }
+    entriesRef.current = next;
+    setEntries(next);
+    setError("");
+    await nextPaint();
+    await revealPicked(entry.id, anchor);
+
+    try {
+      // This runs from the port listener, so read the current settings through the ref.
+      const result = await sendMessage<TranslationResult>({
+        type: "TRANSLATE_SEGMENTS",
+        segments: [entry],
+        targetLanguage: settingsRef.current.targetLanguage,
+      });
+      const translation = result.translations.find((item) => item.id === entry.id);
+      if (!translation) throw new Error("翻訳結果と文章の対応が取れませんでした。");
+      const done = entriesRef.current.map((item) => item.id === entry.id ? { ...entry, ...translation, state: "translated" as const, reason: undefined } : item);
+      entriesRef.current = done;
+      setEntries(done);
+      if (settingsRef.current.displayMode === "inline" && !entry.partial) await applyInline(done);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setEntries((items) => items.map((item) => item.id === entry.id ? { ...item, state: "review", reason: "翻訳に失敗しました。再試行できます。" } : item));
+    }
+  }
+
+  /** A source was clicked on the page: line its card up with it and draw the connector. */
+  async function revealPicked(segmentId: string, anchor: FocusAnchor | null): Promise<void> {
+    const index = visibleRef.current.findIndex((entry) => entry.id === segmentId);
+    if (index < 0) return;
+    setSelectedId(segmentId);
+    setError("");
+    const card = document.querySelector<HTMLElement>(`[data-entry-id="${segmentId}"]`);
+    if (!card) return;
+    if (anchor && panelScreenTop !== null) {
+      const cardY = card.getBoundingClientRect().top + Math.min(card.offsetHeight / 2, 22);
+      window.scrollBy({ top: cardY - (anchor.screenY - panelScreenTop), behavior: "instant" });
+    } else {
+      card.scrollIntoView({ block: "center", behavior: "instant" });
+    }
+    await holdPresence();
+    await sendMessage({
+      type: "FOCUS_SEGMENT",
+      segmentId,
+      anchor: anchorFor(card, panelScreenTop),
+      label: String(index + 1),
+      color: entryColor(index),
+      scroll: false,
+    }).catch((caught: unknown) => setError(errorMessage(caught)));
+  }
+
   const translatedCount = useMemo(() => visibleEntries.filter((entry) => entry.state === "translated").length, [visibleEntries]);
 
   async function persistSettings(next: ExtensionSettings): Promise<void> {
@@ -110,6 +244,7 @@ export function SidePanel() {
     setEntries([]);
     setDroppedCount(0);
     setSelectedId(null);
+    setPagePick(false);
     setStatus("ページの文章を調べています…");
     try {
       await sendMessage({ type: "RESTORE_PAGE" }).catch(() => undefined);
@@ -134,12 +269,12 @@ export function SidePanel() {
       const byId = new Map(classifications.decisions.map((decision) => [decision.id, decision]));
       const next: TranslationEntry[] = candidates.map((segment) => {
         const decision = byId.get(segment.id);
-        const state: SegmentState = decision?.decision === "skip" ? "skipped" : decision?.decision === "translate" ? "pending" : "review";
-        return {
-          ...segment,
-          state,
-          reason: state === "review" ? "Jevの判定を確認してください。" : undefined,
-        };
+        // Jev's "review" means plausible content: translate it too, and flag it on the card.
+        // A "skip" on a readable sentence of the main content, still in the source
+        // language, is more likely a misjudged page type than chrome: translate and flag it.
+        const skipped = decision?.decision === "skip" && !isMainProse(segment, settings.targetLanguage);
+        const state: SegmentState = skipped ? "skipped" : "pending";
+        return { ...segment, state, uncertain: decision?.decision !== "translate" && state === "pending" };
       });
       setEntries(next);
       const pending = next.filter((entry) => entry.state === "pending");
@@ -209,7 +344,7 @@ export function SidePanel() {
   }
 
   async function applyInline(current: TranslationEntry[]): Promise<void> {
-    const ready = current.filter((entry) => entry.state === "translated");
+    const ready = current.filter((entry) => entry.state === "translated" && !entry.partial);
     if (ready.length === 0) return;
     const result = await sendMessage<{ applied: number }>({ type: "APPLY_TRANSLATIONS", entries: ready });
     setStatus(`ページ内に${result.applied}件を表示しています。`);
@@ -219,6 +354,7 @@ export function SidePanel() {
     setSelectedId(entry.id);
     setError("");
     try {
+      await holdPresence();
       const result = await sendMessage<{ focused: boolean }>({
         type: "FOCUS_SEGMENT",
         segmentId: entry.id,
@@ -289,7 +425,7 @@ export function SidePanel() {
         <button
           className={`icon-button ${settingsOpen ? "active" : ""}`}
           type="button"
-          aria-label={settingsOpen ? "翻訳画面に戻る" : "接続設定を開く"}
+          aria-label={settingsOpen ? "翻訳画面に戻る" : "設定を開く"}
           aria-pressed={settingsOpen}
           onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) void checkProviders(); }}
         >
@@ -302,10 +438,27 @@ export function SidePanel() {
           <button className="text-button settings-back" type="button" onClick={() => setSettingsOpen(false)}>
             <Icon name="back" />翻訳画面に戻る
           </button>
-          <p className="eyebrow">Translation services</p>
-          <h2 id="settings-title">接続設定</h2>
-          <p className="settings-intro">翻訳対象の判定にTypeSafe Jev、翻訳にDeepLを使います。それぞれのAPIキーを登録してください。</p>
+          <p className="eyebrow">Settings</p>
+          <h2 id="settings-title">設定</h2>
+          <p className="settings-intro">表示テーマと、翻訳に使うサービスを設定します。翻訳対象の判定にTypeSafe Jev、翻訳にDeepLを使います。</p>
 
+          <h3 className="settings-section" id="theme-label">表示テーマ</h3>
+          <div className="mode-switch theme-switch" role="radiogroup" aria-labelledby="theme-label">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={settings.theme === option.value}
+                className={settings.theme === option.value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, theme: option.value })}
+              >
+                <Icon name={option.icon} />{option.label}
+              </button>
+            ))}
+          </div>
+
+          <h3 className="settings-section">翻訳サービス</h3>
           <div className="provider-card">
             <div className="provider-card-heading">
               <div><h3>TypeSafe Jev</h3><p>ページから翻訳する本文を選びます。</p></div>
@@ -394,7 +547,20 @@ export function SidePanel() {
               <div className="results-heading">
                 <h2 id="results-title">翻訳箇所</h2>
                 <span className="count">{visibleEntries.length}</span>
+                <button
+                  type="button"
+                  className={`pick-toggle ${pagePick ? "active" : ""}`}
+                  aria-pressed={pagePick}
+                  disabled={pickable.length === 0}
+                  title="ページ上の本文をクリックして、対応する訳文を表示します"
+                  onClick={() => setPagePick((on) => !on)}
+                >
+                  <Icon name="pointer" />ページクリック
+                </button>
               </div>
+              {pagePick && (
+                <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />本文をクリックで訳文を表示。翻訳されていない箇所はクリックか文字の選択で追加して翻訳します。Escで終了</p>
+              )}
               {hiddenCount > 0 && (
                 <p className="hidden-note"><Icon name="eyeOff" />本文外・翻訳対象外の{hiddenCount}件は表示していません</p>
               )}
@@ -407,6 +573,9 @@ export function SidePanel() {
                           <span className="entry-number">{index + 1}</span>
                           <span className="entry-location">{entry.location}</span>
                           {entry.state !== "translated" && <span className={`badge ${entry.state}`}>{stateLabel(entry.state)}</span>}
+                          {entry.state === "translated" && entry.uncertain && (
+                            <span className="badge review" title="Jevの判定があいまいだったため、自動で翻訳しました">要確認</span>
+                          )}
                         </span>
                         {entry.state === "translated" ? (
                           <span className="entry-translation">{entry.translatedText}</span>
@@ -472,6 +641,29 @@ export function SidePanel() {
   );
 }
 
+/** Ports to tabs where this panel has drawn a connector, keyed by tab id. */
+const presencePorts = new Map<number, chrome.runtime.Port>();
+
+/**
+ * Keeps a port open to the active tab. When the side panel closes the port drops and
+ * the page removes its connector; there is no other signal that the panel went away.
+ */
+async function holdPresence(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+  const tabId = tab?.id;
+  if (tabId === undefined || presencePorts.has(tabId)) return;
+  try {
+    const port = chrome.tabs.connect(tabId, { name: PANEL_PRESENCE_PORT });
+    port.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError;
+      presencePorts.delete(tabId);
+    });
+    presencePorts.set(tabId, port);
+  } catch {
+    // Pages without the content script have no connector to clean up.
+  }
+}
+
 async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {
   const response = await chrome.runtime.sendMessage(message) as T | { error?: string };
   if (typeof response === "object" && response !== null && "error" in response && response.error) {
@@ -498,6 +690,12 @@ function anchorFor(card: HTMLElement, panelTop: number | null): FocusAnchor | un
   return { screenY: panelTop + Math.min(Math.max(y, 8), window.innerHeight - 8) };
 }
 
+const ADDING = "翻訳しています…";
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
 function entryColor(index: number): string {
   return colors[index % colors.length] ?? colors[0];
 }
@@ -512,6 +710,18 @@ function isInTargetLanguage(text: string, target: TargetLanguage): boolean {
   const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
   const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
   return japanese > 0 && latin / (japanese + latin) < 0.3;
+}
+
+function isMainProse(segment: CandidateSegment, target: TargetLanguage): boolean {
+  if (segment.region !== "main" || segment.kind === "heading" || segment.kind === "control") return false;
+  const text = segment.sourceText;
+  if (text.length < 60 || segment.linkDensity >= 0.5 || !/[.!?。！？]/.test(text)) return false;
+  const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
+  const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
+  const letters = japanese + latin;
+  if (letters === 0) return false;
+  // Only override when the text is clearly in the other language of the pair.
+  return target === "JA" ? latin / letters > 0.7 : japanese / letters > 0.3;
 }
 
 function stateLabel(state: SegmentState): string {
