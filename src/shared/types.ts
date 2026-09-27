@@ -123,6 +123,27 @@ export type ComposeLanguage = EnglishVariant | "JA";
 /** DeepL Write `writing_style` values offered in the panel. */
 export type WritingStyle = "default" | "simple" | "business" | "casual" | "academic";
 
+/** Keyboard shortcuts (manifest `commands`) the side panel carries out. */
+export const PANEL_COMMANDS = ["translate-page", "toggle-page-pick"] as const;
+export type PanelCommand = (typeof PANEL_COMMANDS)[number];
+/**
+ * chrome.storage.session key where the service worker leaves the latest shortcut for the
+ * side panel. Storage (not a message) also reaches a panel the shortcut has just opened.
+ */
+export const PANEL_COMMAND_KEY = "pageTranslatePanelCommand";
+
+export interface PanelCommandRequest {
+  id: string;
+  command: PanelCommand;
+  windowId: number;
+  /** Date.now() when the shortcut was pressed; stale requests are ignored. */
+  at: number;
+}
+
+export function isPanelCommand(value: unknown): value is PanelCommand {
+  return (PANEL_COMMANDS as readonly unknown[]).includes(value);
+}
+
 /** Port name for page-click mode: the side panel connects to the tab while the mode is on. */
 export const PAGE_PICK_PORT = "page-pick";
 /** Held open by the side panel while it shows a connector in a tab; closing the panel drops it. */

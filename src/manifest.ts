@@ -5,7 +5,7 @@ export default defineManifest({
   name: "Page Translate",
   version: "1.3.1",
   description: "Translate English and Japanese web pages with Jev and DeepL, with translations linked to their source.",
-  minimum_chrome_version: "114",
+  minimum_chrome_version: "116",
   permissions: ["sidePanel", "storage"],
   icons: {
     16: "icons/icon16.png",
@@ -28,6 +28,19 @@ export default defineManifest({
     },
   },
   side_panel: { default_path: "src/sidepanel/index.html" },
+  // Mac uses Control (not Command or Option): Chrome and macOS leave Control+Shift+letter free,
+  // and Option+letter types characters. Chrome keeps Alt+Shift+A/B/C/P/T/W/X/Z for itself (a
+  // suggested key there is never assigned), hence Y for 訳 and K for クリック.
+  commands: {
+    "translate-page": {
+      suggested_key: { default: "Alt+Shift+Y", mac: "MacCtrl+Shift+Y" },
+      description: "このページを翻訳",
+    },
+    "toggle-page-pick": {
+      suggested_key: { default: "Alt+Shift+K", mac: "MacCtrl+Shift+K" },
+      description: "ページクリックのオン・オフ",
+    },
+  },
   content_scripts: [
     {
       matches: ["<all_urls>"],

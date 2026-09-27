@@ -25,6 +25,7 @@ Page Translate extracts candidate text from the current page. TypeSafe Jev selec
 - Let TypeSafe Jev classify candidate text before translation
 - Writing check: see what your own English conveys, compare it with DeepL's translation of what you meant, and get DeepL Write corrections (paid-plan keys)
 - DeepL server detected from your key (free or paid plan can also be chosen manually)
+- Keyboard shortcuts: Alt+Shift+Y translates the page, Alt+Shift+K toggles page-click mode (Control+Shift on Mac; customizable)
 
 ### API keys
 

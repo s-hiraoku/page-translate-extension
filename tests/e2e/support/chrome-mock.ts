@@ -12,7 +12,12 @@ export interface MockOptions {
   deeplPlan?: "free" | "pro" | null;
   /** Stored settings merged over the defaults (e.g. { useJev: false }). */
   settings?: Record<string, unknown>;
+  /** Assigned keyboard shortcuts by command name; "" means unassigned. */
+  shortcuts?: Record<string, string>;
 }
+
+/** Window the mocked side panel lives in. */
+export const PANEL_WINDOW_ID = 3;
 
 export const SEGMENTS = [
   { id: "segment-1", order: 0, location: "記事タイトル", tagName: "h1", sourceText: "Designing calm interfaces for dense information", region: "main", kind: "heading", isArticleTitle: true },
@@ -24,7 +29,7 @@ export const SEGMENTS = [
 ].map((segment) => ({ sourceHtml: segment.sourceText, linkDensity: 0, isArticleTitle: false, ...segment }));
 
 export async function installChromeMock(page: Page, options: MockOptions = {}): Promise<void> {
-  await page.addInitScript(({ segments, consent, deeplPlan, settings }) => {
+  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId }) => {
     type Message = { type: string; [key: string]: unknown };
     type Handler = (message: Message) => unknown;
     const w = window as unknown as Record<string, unknown>;
@@ -75,15 +80,34 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
       return portObject;
     };
 
+    // chrome.storage.session with change events, as the service worker uses it for shortcuts.
+    type ChangeListener = (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void;
+    const changeListeners = new Set<ChangeListener>();
+    const session: Record<string, unknown> = {};
+    const area = (name: string, values: Record<string, unknown>) => ({
+      get: async (key: string) => ({ [key]: values[key] }),
+      set: async (next: Record<string, unknown>) => {
+        const changes = Object.fromEntries(Object.entries(next).map(([key, value]) => [key, { oldValue: values[key], newValue: value }]));
+        Object.assign(values, next);
+        changeListeners.forEach((listener) => listener(changes, name));
+      },
+      remove: async (key: string) => {
+        const oldValue = values[key];
+        delete values[key];
+        changeListeners.forEach((listener) => listener({ [key]: { oldValue } }, name));
+      },
+    });
+    w.__session = session;
     w.chrome = {
       storage: {
-        local: {
-          get: async (key: string) => ({ [key]: store[key] }),
-          set: async (values: Record<string, unknown>) => { Object.assign(store, values); },
-          remove: async (key: string) => { delete store[key]; },
-        },
-        onChanged: { addListener: () => undefined, removeListener: () => undefined },
+        local: area("local", store),
+        session: area("session", session),
+        onChanged: { addListener: (listener: ChangeListener) => changeListeners.add(listener), removeListener: (listener: ChangeListener) => changeListeners.delete(listener) },
       },
+      commands: {
+        getAll: async () => Object.entries(shortcuts).map(([name, shortcut]) => ({ name, shortcut, description: name })),
+      },
+      windows: { getCurrent: async () => ({ id: windowId }) },
       runtime: {
         lastError: undefined,
         sendMessage: async (message: Message) => {
@@ -96,12 +120,21 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         query: async () => [{ id: 7 }],
         getZoom: async () => 1,
         connect: (_tabId: number, info?: { name?: string }) => port(info?.name ?? ""),
+        create: async (properties: unknown) => { w.__createdTab = properties; return { id: 8 }; },
       },
     };
-  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null });
+  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID });
 }
 
 /** Message types the panel has sent so far, in order. */
 export function sentTypes(page: Page): Promise<string[]> {
   return page.evaluate(() => ((window as unknown as { __sent: Array<{ type: string }> }).__sent).map((m) => m.type));
+}
+
+/** Does what the service worker does on a keyboard shortcut: leaves the command for the panel. */
+export async function pressShortcut(page: Page, command: string, windowId = PANEL_WINDOW_ID): Promise<void> {
+  await page.evaluate(({ command, windowId }) => {
+    const chromeApi = (window as unknown as { chrome: { storage: { session: { set: (values: object) => Promise<void> } } } }).chrome;
+    return chromeApi.storage.session.set({ pageTranslatePanelCommand: { id: crypto.randomUUID(), command, windowId, at: Date.now() } });
+  }, { command, windowId });
 }

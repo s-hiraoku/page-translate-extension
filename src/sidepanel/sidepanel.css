@@ -250,6 +250,14 @@ select.field { padding-right: 28px; background-image: url("data:image/svg+xml,%3
 .provider-card.unused { opacity: .6; }
 .settings-section { margin: 18px 0 6px; font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
 .theme-switch button { font-size: 12px; }
+.shortcut-list { margin: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.shortcut-list div { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 6px 12px; }
+.shortcut-list div + div { border-top: 1px solid var(--line); }
+.shortcut-list dt { color: var(--ink-2); font-size: 12.5px; font-weight: 500; }
+.shortcut-list dd { margin: 0; }
+.settings-page .shortcut-list + .text-button { margin-top: 6px; }
+kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--surface-2); color: var(--ink-2); font: 600 11px/1.5 var(--mono); white-space: nowrap; }
+.shortcut-hint { margin-top: 18px; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; color: var(--faint) !important; font-size: 11.5px !important; }
 
 /* View tabs */
 .view-tabs { position: sticky; top: 57px; z-index: 4; display: grid; grid-template-columns: 1fr 1fr; padding: 0 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
