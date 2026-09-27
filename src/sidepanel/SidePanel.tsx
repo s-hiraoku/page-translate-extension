@@ -394,12 +394,14 @@ export function SidePanel() {
   async function focusEntry(entry: TranslationEntry, index: number, event: ReactMouseEvent<HTMLElement>): Promise<void> {
     setSelectedId(entry.id);
     setError("");
+    // Read the click position now: React clears event.currentTarget once this handler awaits.
+    const anchor = cardAnchor(event);
     try {
       await holdPresence();
       const result = await sendMessage<{ focused: boolean }>({
         type: "FOCUS_SEGMENT",
         segmentId: entry.id,
-        anchor: cardAnchor(event),
+        anchor,
         label: String(index + 1),
         color: entryColor(index),
       });

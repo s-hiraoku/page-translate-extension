@@ -35,7 +35,17 @@ window.addEventListener(
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (typeof message !== "object" || message === null || !("type" in message)) return;
-  const type = (message as { type: string }).type;
+  // A throwing handler would close the channel without a reply, which the panel can only
+  // report as "cannot run here"; send the actual error back instead.
+  try {
+    handlePanelMessage(message as { type: string }, sendResponse);
+  } catch (error) {
+    sendResponse({ error: `ページの処理中にエラーが発生しました：${error instanceof Error ? error.message : String(error)}` });
+  }
+});
+
+function handlePanelMessage(message: { type: string }, sendResponse: (response: unknown) => void): void {
+  const type = message.type;
 
   if (type === "SCAN_PAGE") {
     sendResponse(scanPage());
@@ -69,7 +79,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     focusOverlay?.retarget(anchor);
     sendResponse({ updated: focusOverlay !== null });
   }
-});
+}
 
 const MAX_SEGMENTS = 120;
 const REGION_LABELS: Partial<Record<SegmentRegion, string>> = {
