@@ -12,7 +12,7 @@ Translate between English and Japanese: text from the page the user chooses (Typ
 - User-entered text (writing check): English and optional Japanese text the user types in the side panel, and, if the user keeps "use the open page as context" on, the page title and main text. Sent directly to DeepL (translate, and DeepL Write with API Pro keys). Not stored. Check which Dashboard category fits (likely "Personal communications" or "Website content") before submitting.
 - Authentication information: user-provided TypeSafe Jev and DeepL API keys. Held in Chrome session storage and sent to the respective provider only for authentication.
 - Web browsing activity: the active page URL is read to show its hostname in the panel. The URL is not included in the provider request bodies.
-- User settings and consent: target language, display mode, provider plan, whether Jev is used, writing check options (English variant, DeepL Write style, page context), and the version of the user's affirmative consent. The consent version was raised to 2 when the writing check was added, so existing users are asked again before any text is sent. Stored locally in the Chrome profile.
+- User settings and consent: target language, display mode, DeepL server choice (auto-detected from the key by default), whether Jev is used, writing check options (English variant, DeepL Write style, page context), and the version of the user's affirmative consent. The consent version was raised to 2 when the writing check was added, so existing users are asked again before any text is sent. Stored locally in the Chrome profile.
 
 ## Use and sharing
 

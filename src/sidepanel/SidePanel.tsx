@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import type {
   CandidateSegment,
   Decision,
+  DeepLEndpoint,
+  DeepLPlan,
   DisplayMode,
   ExtensionMessage,
   ExtensionSettings,
   FocusAnchor,
   PagePickEvent,
   PagePickRequest,
+  ProviderStatus,
   ScanResult,
   SegmentState,
   TargetLanguage,
@@ -27,9 +30,6 @@ interface TranslationResult {
   translations: Array<{ id: string; translatedText: string; translatedHtml: string }>;
 }
 
-interface ProviderStatus {
-  providers: { jev: boolean; deepl: boolean };
-}
 
 const themeOptions: Array<{ value: ThemePreference; label: string; icon: IconName }> = [
   { value: "system", label: "システム", icon: "monitor" },
@@ -103,6 +103,11 @@ export function SidePanel() {
   const visibleEntries = useMemo(() => entries.filter((entry) => entry.state !== "skipped"), [entries]);
   const hiddenCount = droppedCount + entries.length - visibleEntries.length;
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
+
+  // The writing check needs the DeepL plan (DeepL Write is paid-only) before Settings is opened.
+  useEffect(() => {
+    void sendMessage<ProviderStatus>({ type: "CHECK_PROVIDERS" }).then(setProviderStatus, () => undefined);
+  }, []);
 
   const pickable = useMemo(
     () => visibleEntries.flatMap((entry, index) => entry.state === "translated" ? [{ id: entry.id, label: String(index + 1), color: entryColor(index) }] : []),
@@ -404,6 +409,11 @@ export function SidePanel() {
     }
   }
 
+  async function changeDeepLEndpoint(endpoint: DeepLEndpoint): Promise<void> {
+    await persistSettings({ ...settings, deeplEndpoint: endpoint });
+    await checkProviders();
+  }
+
   async function checkProviders(): Promise<void> {
     setError("");
     try {
@@ -530,11 +540,13 @@ export function SidePanel() {
               <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
               <span className={`badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "登録済み" : "未設定"}</span>
             </div>
-            <label className="field-label" htmlFor="deepl-plan">APIプラン</label>
-            <select id="deepl-plan" className="field" value={settings.deeplPlan} onChange={(event) => void persistSettings({ ...settings, deeplPlan: event.target.value === "pro" ? "pro" : "free" })}>
-              <option value="free">API Free</option>
-              <option value="pro">API Pro</option>
+            <label className="field-label" htmlFor="deepl-endpoint">接続先</label>
+            <select id="deepl-endpoint" className="field" value={settings.deeplEndpoint} onChange={(event) => void changeDeepLEndpoint(event.target.value as DeepLEndpoint)}>
+              <option value="auto">自動（キーから判定）</option>
+              <option value="free">無料プラン（api-free.deepl.com）</option>
+              <option value="pro">有料プラン（api.deepl.com）</option>
             </select>
+            <p className="field-hint">{deeplEndpointHint(settings.deeplEndpoint, providerStatus?.deeplPlan ?? null)}</p>
             <label className="field-label" htmlFor="deepl-api-key">APIキー</label>
             <input id="deepl-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={deeplApiKey} onChange={(event) => setDeeplApiKey(event.target.value)} placeholder={providerStatus?.providers.deepl ? "登録済み · 変更時だけ入力" : "DeepL APIキー"} />
           </div>
@@ -560,7 +572,7 @@ export function SidePanel() {
           </div>
           {/* Kept mounted so drafts survive switching tabs. */}
           <div className="compose-view" hidden={view !== "compose"}>
-            <Composer settings={settings} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
+            <Composer settings={settings} deeplPlan={providerStatus?.deeplPlan ?? null} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
           </div>
           {view === "translate" && (<>
           <section className="controls">
@@ -767,6 +779,15 @@ const ADDING = "翻訳しています…";
 
 function nextPaint(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+function deeplEndpointHint(endpoint: DeepLEndpoint, plan: DeepLPlan | null): string {
+  if (plan === null) return "キーを登録すると、使う接続先をここに表示します。";
+  const server = plan === "free" ? "無料プランの接続先（api-free.deepl.com）" : "有料プランの接続先（api.deepl.com）";
+  if (endpoint !== "auto") return `${server}を使います。`;
+  return plan === "free"
+    ? `キーの末尾が「:fx」なので無料プラン用と判定し、${server}を使います。`
+    : `キーの末尾が「:fx」ではないので有料プラン用と判定し、${server}を使います。`;
 }
 
 function entryColor(index: number): string {

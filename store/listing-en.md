@@ -23,7 +23,8 @@ Page Translate extracts candidate text from the current page. TypeSafe Jev selec
 - Jump from a result to its source and see a temporary connector
 - Show translations directly on the page and restore the original text
 - Let TypeSafe Jev classify candidate text before translation
-- Choose DeepL API Free or API Pro
+- Writing check: see what your own English conveys, compare it with DeepL's translation of what you meant, and get DeepL Write corrections (paid-plan keys)
+- DeepL server detected from your key (free or paid plan can also be chosen manually)
 
 ### API keys
 

@@ -4,6 +4,13 @@ export type ThemePreference = "system" | "light" | "dark";
 export type Decision = "translate" | "skip" | "review";
 export type SegmentState = "pending" | "translated" | "review" | "skipped" | "error";
 export type DeepLPlan = "free" | "pro";
+/** Which DeepL server to use. "auto" decides from the key: free-plan keys end in ":fx". */
+export type DeepLEndpoint = "auto" | "free" | "pro";
+
+export function resolveDeepLPlan(endpoint: DeepLEndpoint, apiKey: string): DeepLPlan {
+  if (endpoint !== "auto") return endpoint;
+  return apiKey.trim().endsWith(":fx") ? "free" : "pro";
+}
 
 /** Where a segment sits on the page, as estimated by the content script. */
 export type SegmentRegion =
@@ -67,7 +74,8 @@ export interface TranslationEntry extends CandidateSegment {
 export interface ExtensionSettings {
   targetLanguage: TargetLanguage;
   displayMode: DisplayMode;
-  deeplPlan: DeepLPlan;
+  /** Replaces the former API Free / API Pro choice (`deeplPlan`), which is no longer read. */
+  deeplEndpoint: DeepLEndpoint;
   theme: ThemePreference;
   /** Ask TypeSafe Jev which candidates to translate. Off: every candidate left by the local filters is translated. */
   useJev: boolean;
@@ -85,7 +93,7 @@ export const DATA_USE_CONSENT_VERSION = 2;
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   targetLanguage: "JA",
   displayMode: "source-panel",
-  deeplPlan: "free",
+  deeplEndpoint: "auto",
   theme: "system",
   useJev: true,
   englishVariant: "EN-US",
@@ -142,4 +150,6 @@ export interface RuntimeError {
 
 export interface ProviderStatus {
   providers: { jev: boolean; deepl: boolean };
+  /** DeepL plan the registered key is used with (after "auto" detection); null without a key. */
+  deeplPlan: DeepLPlan | null;
 }

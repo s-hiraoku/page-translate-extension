@@ -1,10 +1,12 @@
 import { useState } from "react";
-import type { EnglishVariant, ExtensionMessage, ExtensionSettings, WritingStyle } from "../shared/types";
+import type { DeepLPlan, EnglishVariant, ExtensionMessage, ExtensionSettings, WritingStyle } from "../shared/types";
 import { diffWords, hasChanges, type DiffPart } from "./diff";
 import { Icon } from "./Icon";
 
 interface ComposerProps {
   settings: ExtensionSettings;
+  /** Plan of the registered DeepL key; DeepL Write needs a paid plan. */
+  deeplPlan: DeepLPlan | null;
   persistSettings: (next: ExtensionSettings) => Promise<void>;
   /** Resolves true once the reader has agreed to send text to the translation services. */
   ensureConsent: () => Promise<boolean>;
@@ -36,13 +38,13 @@ const styleOptions: Array<{ value: WritingStyle; label: string }> = [
  * how DeepL would say the intended Japanese (model answer), and DeepL Write's
  * correction, each compared word by word with what the reader wrote.
  */
-export function Composer({ settings, persistSettings, ensureConsent, getPageContext, sendMessage }: ComposerProps) {
+export function Composer({ settings, deeplPlan, persistSettings, ensureConsent, getPageContext, sendMessage }: ComposerProps) {
   const [english, setEnglish] = useState("");
   const [japanese, setJapanese] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
   const [error, setError] = useState("");
-  const isPro = settings.deeplPlan === "pro";
+  const isPro = deeplPlan === "pro";
 
   async function check(): Promise<void> {
     const draft = english.trim();
@@ -66,7 +68,11 @@ export function Composer({ settings, persistSettings, ensureConsent, getPageCont
         intended ? run({ type: "COMPOSE_TRANSLATE", text: intended, targetLang: settings.englishVariant, context }) : Promise.resolve(undefined),
         isPro
           ? run({ type: "COMPOSE_REPHRASE", text: draft, targetLang: settings.englishVariant, style: settings.writingStyle })
-          : Promise.resolve<Outcome>({ unavailable: "DeepL Writeの添削は、設定画面でDeepL APIプランを「API Pro」にすると使えます。" }),
+          : Promise.resolve<Outcome>({
+            unavailable: deeplPlan === "free"
+              ? "DeepL Writeの添削は有料プランのキーで使えます。登録中のキーは無料プラン用のため、添削は表示しません。"
+              : "DeepL Writeの添削は有料プランのキーで使えます。",
+          }),
       ]);
       setResult({ english: draft, meaning, model, polished, usedPage: Boolean(context) });
     } finally {
