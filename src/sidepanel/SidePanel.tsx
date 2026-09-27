@@ -107,11 +107,16 @@ export function SidePanel() {
   entriesRef.current = entries;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  /** Bumped by every new scan so late results from the previous list are dropped. */
+  const generationRef = useRef(0);
+  // A finished scan (which also means data-use consent was given) enables page-click mode,
+  // even when it left no visible cards: that is when adding one by hand matters most.
+  const scanned = !busy && pageUrl !== "";
 
   // While page-click mode is on, hold a port to the tab. The page reports clicks on
   // translated text through it; closing the panel drops the port and ends the mode.
   useEffect(() => {
-    if (!pagePick || pickable.length === 0) return;
+    if (!pagePick) return;
     let port: chrome.runtime.Port | null = null;
     let cancelled = false;
     void (async () => {
@@ -142,15 +147,12 @@ export function SidePanel() {
     // pickableKey captures every change to the targets.
   }, [pagePick, pickableKey]);
 
-  useEffect(() => {
-    if (pickable.length === 0) setPagePick(false);
-  }, [pickable.length]);
-
   /**
    * Text without a translated card was clicked or selected on the page: add a card in
    * page order (or reuse the hidden one), translate it with DeepL and link it.
    */
   async function addFromPage(segment: CandidateSegment, followingIds: string[], anchor: FocusAnchor | null): Promise<void> {
+    const generation = generationRef.current;
     const existing = entriesRef.current.find((entry) => entry.id === segment.id);
     if (existing && (existing.state === "translated" || existing.reason === ADDING)) {
       await revealPicked(existing.id, anchor);
@@ -179,6 +181,8 @@ export function SidePanel() {
         segments: [entry],
         targetLanguage: settingsRef.current.targetLanguage,
       });
+      // A new scan reuses segment ids; never let this result land on its cards.
+      if (generation !== generationRef.current) return;
       const translation = result.translations.find((item) => item.id === entry.id);
       if (!translation) throw new Error("翻訳結果と文章の対応が取れませんでした。");
       const done = entriesRef.current.map((item) => item.id === entry.id ? { ...entry, ...translation, state: "translated" as const, reason: undefined } : item);
@@ -186,6 +190,7 @@ export function SidePanel() {
       setEntries(done);
       if (settingsRef.current.displayMode === "inline" && !entry.partial) await applyInline(done);
     } catch (caught) {
+      if (generation !== generationRef.current) return;
       setError(errorMessage(caught));
       setEntries((items) => items.map((item) => item.id === entry.id ? { ...item, state: "review", reason: "翻訳に失敗しました。再試行できます。" } : item));
     }
@@ -239,6 +244,7 @@ export function SidePanel() {
   }
 
   async function runTranslation(): Promise<void> {
+    generationRef.current += 1;
     setBusy(true);
     setError("");
     setEntries([]);
@@ -542,7 +548,7 @@ export function SidePanel() {
 
           {error && <div className="error-banner" role="alert"><Icon name="alert" />{error}</div>}
 
-          {visibleEntries.length > 0 ? (
+          {visibleEntries.length > 0 || scanned ? (
             <section className="results-section" aria-labelledby="results-title">
               <div className="results-heading">
                 <h2 id="results-title">翻訳箇所</h2>
@@ -551,7 +557,6 @@ export function SidePanel() {
                   type="button"
                   className={`pick-toggle ${pagePick ? "active" : ""}`}
                   aria-pressed={pagePick}
-                  disabled={pickable.length === 0}
                   title="ページ上の本文をクリックして、対応する訳文を表示します"
                   onClick={() => setPagePick((on) => !on)}
                 >
@@ -563,6 +568,9 @@ export function SidePanel() {
               )}
               {hiddenCount > 0 && (
                 <p className="hidden-note"><Icon name="eyeOff" />本文外・翻訳対象外の{hiddenCount}件は表示していません</p>
+              )}
+              {visibleEntries.length === 0 && !pagePick && (
+                <p className="hidden-note">表示できる翻訳箇所はありません。「ページクリック」で本文を選ぶと追加できます。</p>
               )}
               <ol className="entry-list">
                 {visibleEntries.map((entry, index) => (
