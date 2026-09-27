@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - "v*"
+  # Manual release: builds the chosen ref and creates the v<version> tag and
+  # GitHub Release from package.json, so no local tag push is needed.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit to release (the version comes from its package.json)"
+        required: true
+        default: main
 
 permissions:
   contents: write
@@ -15,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -32,6 +42,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -45,13 +56,29 @@ jobs:
           pkg="$(node --input-type=commonjs -p "require('./package.json').version")"
           expected="page-translate-v${pkg}-chrome.zip"
           if [[ "$base" != "$expected" ]]; then
-            echo "package.json version ${pkg} does not match ${base}. Align package.json with src/manifest.ts before tagging." >&2
+            echo "package.json version ${pkg} does not match ${base}. Align package.json with src/manifest.ts before releasing." >&2
             exit 1
           fi
-          if [[ "$GITHUB_REF_NAME" != "v${pkg}" ]]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match package.json version v${pkg}." >&2
-            exit 1
+          tag="v${pkg}"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Never move or reuse an existing tag: a version is released once.
+            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+              echo "Tag ${tag} already exists. Bump the version in package.json and src/manifest.ts first." >&2
+              exit 1
+            fi
+            # Creates the tag at the built commit. Tags made with GITHUB_TOKEN do not
+            # trigger the tag-push run of this workflow, so the release is made once.
+            gh release create "$tag" "$zip" \
+              --target "$(git rev-parse HEAD)" \
+              --title "$tag" \
+              --notes "Chrome ウェブストア提出用の ${base} です。"
+          else
+            if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
+              echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${tag}." >&2
+              exit 1
+            fi
+            gh release create "$tag" "$zip" \
+              --title "$tag" \
+              --notes "Chrome ウェブストア提出用の ${base} です。"
           fi
-          gh release create "$GITHUB_REF_NAME" "$zip" \
-            --title "$GITHUB_REF_NAME" \
-            --notes "Chrome ウェブストア提出用の ${base} です。"
