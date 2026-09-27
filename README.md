@@ -48,7 +48,10 @@ npm run zip
 
 `main` への push では、GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をアーティファクトとして残します。アーティファクト名は ZIP のファイル名と同じです（例: `page-translate-v1.3.0-chrome.zip`）。ダウンロードしたファイルが提出用 ZIP そのものです。
 
-公開するときは、`src/manifest.ts` の `version` と `package.json` の `version` を同じ値にしたうえで、`v1.3.0` のように `v` と version を続けたタグを push します。GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をそのタグの GitHub Release に添付します。
+公開するときは、`src/manifest.ts` の `version` と `package.json` の `version` を同じ値にして `main` にマージしたうえで、次のどちらかで GitHub Release を作ります。どちらも GitHub Actions が同じ `npm run zip` を実行し、できた ZIP を Release に添付します。
+
+- GitHub の Actions タブで「Release」ワークフローを手動実行する（`ref` は通常 `main`）。`package.json` の version から `v1.3.0` のようなタグを作り、Release も作成します。同じタグがすでにある場合は失敗します。
+- `v1.3.0` のように `v` と version を続けたタグを push する。
 
 プライバシーポリシーは [`docs/privacy.html`](docs/privacy.html) を GitHub Pages で公開します。公開 URL は https://s-hiraoku.github.io/page-translate-extension/privacy.html です。
 
