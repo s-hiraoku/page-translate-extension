@@ -1,7 +1,15 @@
 name: Release
 
 on:
+  # Automatic release: merging a version bump (package.json and src/manifest.ts)
+  # into main publishes v<version>. Pushes that keep an already released version
+  # do nothing.
   push:
+    branches:
+      - main
+    paths:
+      - package.json
+      - src/manifest.ts
     tags:
       - "v*"
   # Manual release: builds the chosen ref and creates the v<version> tag and
@@ -16,6 +24,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Publish store zip
@@ -26,7 +38,32 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
+      - name: Decide whether to release
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          pkg="$(node --input-type=commonjs -p "require('./package.json').version")"
+          tag="v${pkg}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "push" && "$REF_TYPE" == "tag" ]]; then
+            echo "mode=tag" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            # Never move or reuse an existing tag: a version is released once.
+            if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+              echo "Tag ${tag} already exists. Bump the version in package.json and src/manifest.ts first." >&2
+              exit 1
+            fi
+            echo "${tag} is already released; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=create" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Node.js
+        if: steps.plan.outputs.mode != 'skip'
         uses: actions/setup-node@v7
         with:
           # README: Node.js 20.19+ or 22.12+
@@ -34,18 +71,23 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        if: steps.plan.outputs.mode != 'skip'
         run: npm ci
 
       - name: Unit tests
+        if: steps.plan.outputs.mode != 'skip'
         run: npm test
 
       - name: Package store zip
+        if: steps.plan.outputs.mode != 'skip'
         run: npm run zip
 
       - name: Publish GitHub Release
+        if: steps.plan.outputs.mode != 'skip'
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ steps.plan.outputs.mode }}
+          TAG: ${{ steps.plan.outputs.tag }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -56,32 +98,25 @@ jobs:
           fi
           zip="${files[0]}"
           base="$(basename "$zip")"
-          pkg="$(node --input-type=commonjs -p "require('./package.json').version")"
-          expected="page-translate-v${pkg}-chrome.zip"
+          expected="page-translate-${TAG}-chrome.zip"
           if [[ "$base" != "$expected" ]]; then
-            echo "package.json version ${pkg} does not match ${base}. Align package.json with src/manifest.ts before releasing." >&2
+            echo "package.json version ${TAG} does not match ${base}. Align package.json with src/manifest.ts before releasing." >&2
             exit 1
           fi
-          tag="v${pkg}"
 
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            # Never move or reuse an existing tag: a version is released once.
-            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
-              echo "Tag ${tag} already exists. Bump the version in package.json and src/manifest.ts first." >&2
-              exit 1
-            fi
+          if [[ "$MODE" == "create" ]]; then
             # Creates the tag at the built commit. Tags made with GITHUB_TOKEN do not
             # trigger the tag-push run of this workflow, so the release is made once.
-            gh release create "$tag" "$zip" \
+            gh release create "$TAG" "$zip" \
               --target "$(git rev-parse HEAD)" \
-              --title "$tag" \
+              --title "$TAG" \
               --notes "Chrome ウェブストア提出用の ${base} です。"
           else
-            if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
-              echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${tag}." >&2
+            if [[ "$GITHUB_REF_NAME" != "$TAG" ]]; then
+              echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${TAG}." >&2
               exit 1
             fi
-            gh release create "$tag" "$zip" \
-              --title "$tag" \
+            gh release create "$TAG" "$zip" \
+              --title "$TAG" \
               --notes "Chrome ウェブストア提出用の ${base} です。"
           fi
