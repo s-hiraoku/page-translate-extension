@@ -3,7 +3,7 @@ import type {
   RuntimeError,
 } from "../shared/types";
 import { DEFAULT_SETTINGS, PROVIDER_KEYS_KEY, SETTINGS_KEY } from "../shared/types";
-import { classifyCandidates, clearProviderKeys, providerStatus, saveProviderKeys, translateSegments } from "./providers";
+import { classifyCandidates, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
 
@@ -46,6 +46,9 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       return sendToActiveTab({ type: "SCAN_PAGE" });
     case "FOCUS_SEGMENT":
       return sendToActiveTab(message, (tabId) => chrome.tabs.getZoom(tabId).catch(() => 1).then((zoom) => ({ ...message, zoom })));
+    case "PAGE_TEXT":
+      requireExtensionPage(sender);
+      return sendToActiveTab({ type: "PAGE_TEXT" });
     case "APPLY_TRANSLATIONS":
     case "RESTORE_PAGE":
     case "UPDATE_FOCUS_ANCHOR":
@@ -57,6 +60,13 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       });
     case "TRANSLATE_SEGMENTS":
       return translateSegments(message.segments, message.targetLanguage);
+    // The writing check sends the reader's own text: only the side panel may ask for it.
+    case "COMPOSE_TRANSLATE":
+      requireExtensionPage(sender);
+      return translateText(message.text, message.targetLang, message.context);
+    case "COMPOSE_REPHRASE":
+      requireExtensionPage(sender);
+      return rephraseText(message.text, message.targetLang, message.style);
     case "OPEN_SIDE_PANEL":
       return undefined;
   }

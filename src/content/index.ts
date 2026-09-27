@@ -46,6 +46,10 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     sendResponse({ applied: applyTranslations(entries) });
     return;
   }
+  if (type === "PAGE_TEXT") {
+    sendResponse(readPageText());
+    return;
+  }
   if (type === "RESTORE_PAGE") {
     restoreOriginalPage();
     sendResponse({ restored: true });
@@ -184,6 +188,16 @@ function scanPage(): ScanResult {
     mainContentDetected: hasMainRoot,
     excludedCount,
   };
+}
+
+/**
+ * Title and main text of the page for the writing check's DeepL context. Unlike
+ * scanPage it leaves the current segments, cards and page-click mode untouched.
+ */
+function readPageText(): { title: string; text: string } {
+  const { root } = detectMainContent();
+  const text = normalizeText((root ?? document.body).innerText || "").slice(0, 4_000);
+  return { title: document.title, text };
 }
 
 function byDocumentOrder(left: Node, right: Node): number {
