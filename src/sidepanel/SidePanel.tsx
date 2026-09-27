@@ -36,6 +36,11 @@ const themeOptions: Array<{ value: ThemePreference; label: string; icon: IconNam
   { value: "dark", label: "ダーク", icon: "moon" },
 ];
 
+const jevOptions: Array<{ value: boolean; label: string }> = [
+  { value: true, label: "Jevを使う" },
+  { value: false, label: "Jevを使わない" },
+];
+
 const colors = ["#2c5cf0", "#e0702a", "#0f8a6c", "#9150c8", "#c23d5f", "#6f8517"];
 
 /** Screen Y of the side panel viewport's top edge, learned from pointer events. */
@@ -264,15 +269,22 @@ export function SidePanel() {
         return;
       }
 
-      setStatus(`本文の${candidates.length}件をJevが確認しています…`);
-      const classifications = await sendMessage<DecisionResult>({
-        type: "CLASSIFY_CANDIDATES",
-        segments: candidates,
-        targetLanguage: settings.targetLanguage,
-        pageTitle: page.title,
-        mainContentDetected: page.mainContentDetected,
-      });
-      const byId = new Map(classifications.decisions.map((decision) => [decision.id, decision]));
+      // Without Jev, everything the local filters kept is translated. Comparing the two
+      // settings on the same page shows exactly what Jev removes.
+      let decisions: DecisionResult["decisions"];
+      if (settings.useJev) {
+        setStatus(`本文の${candidates.length}件をJevが確認しています…`);
+        ({ decisions } = await sendMessage<DecisionResult>({
+          type: "CLASSIFY_CANDIDATES",
+          segments: candidates,
+          targetLanguage: settings.targetLanguage,
+          pageTitle: page.title,
+          mainContentDetected: page.mainContentDetected,
+        }));
+      } else {
+        decisions = candidates.map((segment) => ({ id: segment.id, decision: "translate" as const, confidence: 1 }));
+      }
+      const byId = new Map(decisions.map((decision) => [decision.id, decision]));
       const next: TranslationEntry[] = candidates.map((segment) => {
         const decision = byId.get(segment.id);
         // Jev's "review" means plausible content: translate it too, and flag it on the card.
@@ -305,7 +317,8 @@ export function SidePanel() {
       const finalEntries = [...next];
       setEntries(finalEntries);
       const shown = finalEntries.filter((entry) => entry.state !== "skipped").length;
-      setStatus(shown > 0 ? `本文の${shown}件を表示しています。` : "翻訳が必要な本文が見つかりませんでした。");
+      const mode = settings.useJev ? "" : "（Jevなし）";
+      setStatus(shown > 0 ? `本文の${shown}件を表示しています。${mode}` : `翻訳が必要な本文が見つかりませんでした。${mode}`);
       if (settings.displayMode === "inline") await applyInline(finalEntries);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -446,7 +459,7 @@ export function SidePanel() {
           </button>
           <p className="eyebrow">Settings</p>
           <h2 id="settings-title">設定</h2>
-          <p className="settings-intro">表示テーマと、翻訳に使うサービスを設定します。翻訳対象の判定にTypeSafe Jev、翻訳にDeepLを使います。</p>
+          <p className="settings-intro">表示テーマと、翻訳に使うサービスを設定します。翻訳にはDeepLを使います。翻訳する本文の判定にTypeSafe Jevを使うかどうかも選べます。</p>
 
           <h3 className="settings-section" id="theme-label">表示テーマ</h3>
           <div className="mode-switch theme-switch" role="radiogroup" aria-labelledby="theme-label">
@@ -464,10 +477,31 @@ export function SidePanel() {
             ))}
           </div>
 
+          <h3 className="settings-section" id="jev-label">翻訳する本文の判定</h3>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="jev-label">
+            {jevOptions.map((option) => (
+              <button
+                key={String(option.value)}
+                type="button"
+                role="radio"
+                aria-checked={settings.useJev === option.value}
+                className={settings.useJev === option.value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, useJev: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="field-hint">
+            {settings.useJev
+              ? "ページ側のルールで除いた残りをJevが確認し、本文だけを翻訳します。"
+              : "Jevを使わず、ページ側のルールで除いた残りをすべて翻訳します。JevのAPIキーは不要です。"}
+          </p>
+
           <h3 className="settings-section">翻訳サービス</h3>
-          <div className="provider-card">
+          <div className={`provider-card ${settings.useJev ? "" : "unused"}`}>
             <div className="provider-card-heading">
-              <div><h3>TypeSafe Jev</h3><p>ページから翻訳する本文を選びます。</p></div>
+              <div><h3>TypeSafe Jev</h3><p>{settings.useJev ? "ページから翻訳する本文を選びます。" : "現在は使わない設定です。"}</p></div>
               <span className={`badge ${providerStatus?.providers.jev ? "ready" : "missing"}`}>{providerStatus?.providers.jev ? "登録済み" : "未設定"}</span>
             </div>
             <label className="field-label" htmlFor="typesafe-api-key">APIキー</label>
@@ -476,7 +510,7 @@ export function SidePanel() {
 
           <div className="provider-card">
             <div className="provider-card-heading">
-              <div><h3>DeepL</h3><p>Jevが選んだ本文を翻訳します。</p></div>
+              <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
               <span className={`badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "登録済み" : "未設定"}</span>
             </div>
             <label className="field-label" htmlFor="deepl-plan">APIプラン</label>
@@ -613,14 +647,14 @@ export function SidePanel() {
               <p>ナビゲーションや広告などを除いた本文を翻訳します。訳文を選ぶと、原文の位置までコネクタで結びます。</p>
               <ol className="steps">
                 <li><span>1</span>本文を抽出</li>
-                <li><span>2</span>Jevが翻訳対象を判定</li>
+                <li><span>2</span>{settings.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
                 <li><span>3</span>DeepLで翻訳</li>
               </ol>
             </section>
           )}
 
           <footer className="panel-footer">
-            <span className="privacy"><Icon name="shield" />翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信</span>
+            <span className="privacy"><Icon name="shield" />{settings.useJev ? "翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信" : "翻訳時は本文をDeepLへ送信（Jevは不使用）"}</span>
             {settings.displayMode === "inline" && translatedCount > 0 && (
               <button type="button" className="text-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>
                 <Icon name="restore" />原文に戻す
@@ -635,7 +669,7 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">ページの文章を外部サービスへ送信します</h2>
-            <p id="consent-description">翻訳を始めると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p id="consent-description">翻訳を始めると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定でJevを使わない場合は、抽出した文章をDeepLにだけ送ります）。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe JevとDeepLです。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a></p>
             <div className="consent-actions">

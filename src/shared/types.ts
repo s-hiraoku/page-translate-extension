@@ -69,6 +69,8 @@ export interface ExtensionSettings {
   displayMode: DisplayMode;
   deeplPlan: DeepLPlan;
   theme: ThemePreference;
+  /** Ask TypeSafe Jev which candidates to translate. Off: every candidate left by the local filters is translated. */
+  useJev: boolean;
 }
 
 export const SETTINGS_KEY = "pageTranslateSettings";
@@ -80,6 +82,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   displayMode: "source-panel",
   deeplPlan: "free",
   theme: "system",
+  useJev: true,
 };
 
 export type ExtensionMessage =
