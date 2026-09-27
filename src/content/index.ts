@@ -7,6 +7,7 @@ const BLOCK_SELECTOR = [
   "td", "th", "figcaption", "dd", "dt", "[role='paragraph']", "[data-testid='tweetText']",
 ].join(",");
 const CONTROL_SELECTOR = "a,button,[role='button'],label";
+const UNSAFE_TO_REPLACE = "style,script,link,template,iframe,video,audio,canvas,object,embed,input,select,textarea";
 const EXCLUDED_SELECTOR = [
   "script", "style", "noscript", "template", "svg", "canvas", "pre", "code",
   "button", "input", "textarea", "select", "[contenteditable='true']",
@@ -103,7 +104,7 @@ function scanPage(): ScanResult {
   lastMainContent = mainContent;
   const matches = [...document.querySelectorAll<HTMLElement>(BLOCK_SELECTOR)].filter((element) => {
     if (element.closest(EXCLUDED_SELECTOR) || !isVisible(element)) return false;
-    const text = normalizeText(element.innerText || element.textContent || "");
+    const text = visibleText(element);
     return text.length >= 8 && /[\p{L}\p{N}]/u.test(text);
   });
   const matchSet = new Set(matches);
@@ -112,7 +113,7 @@ function scanPage(): ScanResult {
   const blockAncestors = collectAncestorElements(selectedBlocks);
   const fallbackCandidates = [...document.querySelectorAll<HTMLElement>("div")].filter((element) => {
     if (element.closest(EXCLUDED_SELECTOR) || blockAncestors.has(element) || matchSet.has(element) || !isVisible(element)) return false;
-    const text = normalizeText(element.innerText || element.textContent || "");
+    const text = visibleText(element);
     return text.length >= 8 && text.length <= 12_000 && /[\p{L}\p{N}]/u.test(text);
   });
   const fallbackSet = new Set(fallbackCandidates);
@@ -123,7 +124,7 @@ function scanPage(): ScanResult {
   const controls = [...document.querySelectorAll<HTMLElement>(CONTROL_SELECTOR)].filter((element) => {
     if (element.closest(EXCLUDED_SELECTOR) || !isVisible(element)) return false;
     if (hasAncestorFromSet(element, structuralBlockSet) || hasAncestorFromSet(element, fallbackBlockSet)) return false;
-    const text = normalizeText(element.innerText || element.textContent || "");
+    const text = visibleText(element);
     return text.length >= 2 && text.length <= 180 && /[\p{L}\p{N}]/u.test(text);
   });
   const selected = [...selectedBlocks, ...fallbackBlocks, ...controls].sort(byDocumentOrder);
@@ -135,7 +136,7 @@ function scanPage(): ScanResult {
     const region = classifyRegion(element, mainContent);
     const kind = segmentKind(element);
     const density = linkDensity(element);
-    const text = normalizeText(element.innerText || element.textContent || "");
+    const text = visibleText(element);
     if (isHardNoise(region, kind, density, hasMainRoot, text)) {
       excludedCount += 1;
       return [];
@@ -153,7 +154,7 @@ function scanPage(): ScanResult {
   const headingContext: string[] = [];
   let bodyIndex = 0;
   const segments = classified.map(({ element, region, kind, density }, order): CandidateSegment => {
-    const text = normalizeText(element.innerText || element.textContent || "");
+    const text = visibleText(element);
     const id = `segment-${order + 1}`;
     const isArticleTitle = mainContent.title === element;
     if (kind === "heading") {
@@ -254,6 +255,9 @@ function applyTranslations(entries: TranslationEntry[]): number {
     if (entry.state !== "translated" || !entry.translatedHtml || entry.partial) continue;
     const element = pageElements.get(entry.id);
     if (!element?.isConnected) continue;
+    // Replacing innerHTML would delete these and can break the whole page's styling;
+    // such blocks stay translated in the panel only.
+    if (element.querySelector(UNSAFE_TO_REPLACE)) continue;
     if (!originals.has(entry.id)) {
       originals.set(entry.id, { element, html: element.innerHTML });
     }
@@ -552,7 +556,7 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
     const block = pickableBlock(selection.getRangeAt(0).startContainer);
     if (!block) return;
     ignoreClickUntil = performance.now() + 400;
-    const whole = normalizeText(block.innerText || block.textContent || "");
+    const whole = visibleText(block);
     add(event, block, text === whole ? undefined : text);
     selection.removeAllRanges();
   };
@@ -593,7 +597,7 @@ function pickableBlock(node: EventTarget | Node | null): HTMLElement | null {
   if (!start || start.closest("[data-page-translate-ui], input, textarea, select, [contenteditable='true']")) return null;
   const within = (element: Element | null): element is HTMLElement => {
     if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement) return false;
-    const text = normalizeText(element.innerText || element.textContent || "");
+    const text = visibleText(element);
     return text.length >= 2 && text.length <= 5000 && /\p{L}/u.test(text);
   };
   const block = start.closest(BLOCK_SELECTOR);
@@ -612,7 +616,7 @@ function describeForPanel(element: HTMLElement, selected?: string): CandidateSeg
     id = `manual-${manualCount}`;
     pageElements.set(id, element);
   }
-  const text = selected ?? normalizeText(element.innerText || element.textContent || "");
+  const text = selected ?? visibleText(element);
   const kind = segmentKind(element);
   const tag = element.tagName.toLowerCase();
   return {
@@ -680,10 +684,13 @@ function sanitizeTranslatedHtml(html: string): string {
   const template = document.createElement("template");
   template.innerHTML = html;
   const allowed = new Set(["A", "EM", "STRONG", "B", "I", "CODE", "SPAN", "BR", "SMALL", "SUB", "SUP", "MARK"]);
+  // Their text is not page content (CSS, scripts, fallbacks); flattening them would leak it.
+  const dropped = new Set(["STYLE", "SCRIPT", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "SELECT", "OPTION", "IFRAME", "OBJECT"]);
 
   const clean = (node: Node): Node[] => {
     if (node.nodeType === Node.TEXT_NODE) return [document.createTextNode(node.textContent ?? "")];
     if (!(node instanceof HTMLElement)) return [];
+    if (dropped.has(node.tagName)) return [];
     if (!allowed.has(node.tagName)) return [...node.childNodes].flatMap(clean);
 
     const safe = document.createElement(node.tagName.toLowerCase());
@@ -707,6 +714,15 @@ function sanitizeTranslatedHtml(html: string): string {
   const root = document.createElement("div");
   for (const child of template.content.childNodes) root.append(...clean(child));
   return root.innerHTML;
+}
+
+/**
+ * Rendered text only. `textContent` (and `innerText` of an element that is not rendered)
+ * includes <style>/<script> bodies and hidden text, e.g. CSS embedded by site builders.
+ */
+function visibleText(element: HTMLElement): string {
+  if (element.getClientRects().length === 0) return "";
+  return normalizeText(element.innerText || "");
 }
 
 function isVisible(element: HTMLElement): boolean {

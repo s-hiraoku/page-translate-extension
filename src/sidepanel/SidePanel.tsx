@@ -812,6 +812,8 @@ function isMainProse(segment: CandidateSegment, target: TargetLanguage): boolean
   if (segment.region !== "main" || segment.kind === "heading" || segment.kind === "control") return false;
   const text = segment.sourceText;
   if (text.length < 60 || segment.linkDensity >= 0.5 || !/[.!?。！？]/.test(text)) return false;
+  // Code and CSS (braces, semicolons, parentheses) are not prose, whatever Jev missed.
+  if ((text.match(/[{}();=<>[\]]/g) ?? []).length / text.length > 0.03) return false;
   const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
   const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
   const letters = japanese + latin;
