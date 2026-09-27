@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import type {
   CandidateSegment,
   Decision,
+  DeepLEndpoint,
+  DeepLPlan,
   DisplayMode,
   ExtensionMessage,
   ExtensionSettings,
   FocusAnchor,
   PagePickEvent,
   PagePickRequest,
+  ProviderStatus,
   ScanResult,
   SegmentState,
   TargetLanguage,
@@ -15,6 +18,7 @@ import type {
   TranslationEntry,
 } from "../shared/types";
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_PRESENCE_PORT, SETTINGS_KEY } from "../shared/types";
+import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import { applyTheme, cachedTheme } from "./theme";
 
@@ -26,9 +30,6 @@ interface TranslationResult {
   translations: Array<{ id: string; translatedText: string; translatedHtml: string }>;
 }
 
-interface ProviderStatus {
-  providers: { jev: boolean; deepl: boolean };
-}
 
 const themeOptions: Array<{ value: ThemePreference; label: string; icon: IconName }> = [
   { value: "system", label: "システム", icon: "monitor" },
@@ -63,6 +64,8 @@ export function SidePanel() {
   const [deeplApiKey, setDeeplApiKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
+  const consentResolver = useRef<((agreed: boolean) => void) | null>(null);
+  const [view, setView] = useState<"translate" | "compose">("translate");
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
   /** Page-click mode: clicking translated text on the page selects its card. */
@@ -100,6 +103,11 @@ export function SidePanel() {
   const visibleEntries = useMemo(() => entries.filter((entry) => entry.state !== "skipped"), [entries]);
   const hiddenCount = droppedCount + entries.length - visibleEntries.length;
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
+
+  // The writing check needs the DeepL plan (DeepL Write is paid-only) before Settings is opened.
+  useEffect(() => {
+    void sendMessage<ProviderStatus>({ type: "CHECK_PROVIDERS" }).then(setProviderStatus, () => undefined);
+  }, []);
 
   const pickable = useMemo(
     () => visibleEntries.flatMap((entry, index) => entry.state === "translated" ? [{ id: entry.id, label: String(index + 1), color: entryColor(index) }] : []),
@@ -233,19 +241,33 @@ export function SidePanel() {
     await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   }
 
-  async function startTranslation(): Promise<void> {
+  /**
+   * Resolves true once the current data-use consent is on record, asking for it first
+   * if needed. Page translation and the writing check both go through here.
+   */
+  async function ensureConsent(): Promise<boolean> {
     const consent = await chrome.storage.local.get(DATA_USE_CONSENT_KEY);
-    if (consent[DATA_USE_CONSENT_KEY] !== DATA_USE_CONSENT_VERSION) {
-      setConsentOpen(true);
-      return;
-    }
-    await runTranslation();
+    if (consent[DATA_USE_CONSENT_KEY] === DATA_USE_CONSENT_VERSION) return true;
+    consentResolver.current?.(false);
+    setConsentOpen(true);
+    return new Promise((resolve) => { consentResolver.current = resolve; });
   }
 
-  async function agreeAndTranslate(): Promise<void> {
-    await chrome.storage.local.set({ [DATA_USE_CONSENT_KEY]: DATA_USE_CONSENT_VERSION });
+  async function answerConsent(agreed: boolean): Promise<void> {
+    if (agreed) await chrome.storage.local.set({ [DATA_USE_CONSENT_KEY]: DATA_USE_CONSENT_VERSION });
     setConsentOpen(false);
-    await runTranslation();
+    consentResolver.current?.(agreed);
+    consentResolver.current = null;
+  }
+
+  async function startTranslation(): Promise<void> {
+    if (await ensureConsent()) await runTranslation();
+  }
+
+  /** Title and main text of the open page, as DeepL context for the writing check. */
+  async function getPageContext(): Promise<string> {
+    const page = await sendMessage<{ title: string; text: string }>({ type: "PAGE_TEXT" });
+    return [page.title, page.text].filter(Boolean).join("\n\n");
   }
 
   async function runTranslation(): Promise<void> {
@@ -387,6 +409,11 @@ export function SidePanel() {
     }
   }
 
+  async function changeDeepLEndpoint(endpoint: DeepLEndpoint): Promise<void> {
+    await persistSettings({ ...settings, deeplEndpoint: endpoint });
+    await checkProviders();
+  }
+
   async function checkProviders(): Promise<void> {
     setError("");
     try {
@@ -513,11 +540,13 @@ export function SidePanel() {
               <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
               <span className={`badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "登録済み" : "未設定"}</span>
             </div>
-            <label className="field-label" htmlFor="deepl-plan">APIプラン</label>
-            <select id="deepl-plan" className="field" value={settings.deeplPlan} onChange={(event) => void persistSettings({ ...settings, deeplPlan: event.target.value === "pro" ? "pro" : "free" })}>
-              <option value="free">API Free</option>
-              <option value="pro">API Pro</option>
+            <label className="field-label" htmlFor="deepl-endpoint">接続先</label>
+            <select id="deepl-endpoint" className="field" value={settings.deeplEndpoint} onChange={(event) => void changeDeepLEndpoint(event.target.value as DeepLEndpoint)}>
+              <option value="auto">自動（キーから判定）</option>
+              <option value="free">無料プラン（api-free.deepl.com）</option>
+              <option value="pro">有料プラン（api.deepl.com）</option>
             </select>
+            <p className="field-hint">{deeplEndpointHint(settings.deeplEndpoint, providerStatus?.deeplPlan ?? null)}</p>
             <label className="field-label" htmlFor="deepl-api-key">APIキー</label>
             <input id="deepl-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={deeplApiKey} onChange={(event) => setDeeplApiKey(event.target.value)} placeholder={providerStatus?.providers.deepl ? "登録済み · 変更時だけ入力" : "DeepL APIキー"} />
           </div>
@@ -533,6 +562,19 @@ export function SidePanel() {
         </section>
       ) : (
         <>
+          <div className="view-tabs" role="tablist" aria-label="機能">
+            <button type="button" role="tab" aria-selected={view === "translate"} className={view === "translate" ? "active" : ""} onClick={() => setView("translate")}>
+              <Icon name="split" />ページ翻訳
+            </button>
+            <button type="button" role="tab" aria-selected={view === "compose"} className={view === "compose" ? "active" : ""} onClick={() => setView("compose")}>
+              <Icon name="pen" />英作文
+            </button>
+          </div>
+          {/* Kept mounted so drafts survive switching tabs. */}
+          <div className="compose-view" hidden={view !== "compose"}>
+            <Composer settings={settings} deeplPlan={providerStatus?.deeplPlan ?? null} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
+          </div>
+          {view === "translate" && (<>
           <section className="controls">
             <div className="page-context">
               <span className="favicon-dot" aria-hidden="true">{pageUrl ? pageUrl.replace(/^www\./, "").slice(0, 1).toUpperCase() : <Icon name="inline" />}</span>
@@ -661,6 +703,7 @@ export function SidePanel() {
               </button>
             )}
           </footer>
+          </>)}
         </>
       )}
       {consentOpen && (
@@ -668,13 +711,13 @@ export function SidePanel() {
           <section className="consent-dialog" role="dialog" aria-modal="true" aria-labelledby="consent-title" aria-describedby="consent-description">
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
-            <h2 id="consent-title">ページの文章を外部サービスへ送信します</h2>
-            <p id="consent-description">翻訳を始めると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定でJevを使わない場合は、抽出した文章をDeepLにだけ送ります）。APIキーも認証のため各サービスへ送信します。</p>
+            <h2 id="consent-title">文章を外部サービスへ送信します</h2>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定でJevを使わない場合は、抽出した文章をDeepLにだけ送ります）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe JevとDeepLです。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a></p>
             <div className="consent-actions">
-              <button className="button secondary" type="button" onClick={() => setConsentOpen(false)}>キャンセル</button>
-              <button className="button primary" type="button" onClick={() => void agreeAndTranslate()}>同意して翻訳を始める</button>
+              <button className="button secondary" type="button" onClick={() => void answerConsent(false)}>キャンセル</button>
+              <button className="button primary" type="button" onClick={() => void answerConsent(true)}>同意して続ける</button>
             </div>
           </section>
         </div>
@@ -736,6 +779,15 @@ const ADDING = "翻訳しています…";
 
 function nextPaint(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+function deeplEndpointHint(endpoint: DeepLEndpoint, plan: DeepLPlan | null): string {
+  if (plan === null) return "キーを登録すると、使う接続先をここに表示します。";
+  const server = plan === "free" ? "無料プランの接続先（api-free.deepl.com）" : "有料プランの接続先（api.deepl.com）";
+  if (endpoint !== "auto") return `${server}を使います。`;
+  return plan === "free"
+    ? `キーの末尾が「:fx」なので無料プラン用と判定し、${server}を使います。`
+    : `キーの末尾が「:fx」ではないので有料プラン用と判定し、${server}を使います。`;
 }
 
 function entryColor(index: number): string {

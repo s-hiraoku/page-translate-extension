@@ -4,6 +4,13 @@ export type ThemePreference = "system" | "light" | "dark";
 export type Decision = "translate" | "skip" | "review";
 export type SegmentState = "pending" | "translated" | "review" | "skipped" | "error";
 export type DeepLPlan = "free" | "pro";
+/** Which DeepL server to use. "auto" decides from the key: free-plan keys end in ":fx". */
+export type DeepLEndpoint = "auto" | "free" | "pro";
+
+export function resolveDeepLPlan(endpoint: DeepLEndpoint, apiKey: string): DeepLPlan {
+  if (endpoint !== "auto") return endpoint;
+  return apiKey.trim().endsWith(":fx") ? "free" : "pro";
+}
 
 /** Where a segment sits on the page, as estimated by the content script. */
 export type SegmentRegion =
@@ -67,22 +74,31 @@ export interface TranslationEntry extends CandidateSegment {
 export interface ExtensionSettings {
   targetLanguage: TargetLanguage;
   displayMode: DisplayMode;
-  deeplPlan: DeepLPlan;
+  /** Replaces the former API Free / API Pro choice (`deeplPlan`), which is no longer read. */
+  deeplEndpoint: DeepLEndpoint;
   theme: ThemePreference;
   /** Ask TypeSafe Jev which candidates to translate. Off: every candidate left by the local filters is translated. */
   useJev: boolean;
+  /** Writing check: English variant, DeepL Write style, and whether the open page is used as context. */
+  englishVariant: EnglishVariant;
+  writingStyle: WritingStyle;
+  composeUsePage: boolean;
 }
 
 export const SETTINGS_KEY = "pageTranslateSettings";
 export const PROVIDER_KEYS_KEY = "pageTranslateProviderKeys";
 export const DATA_USE_CONSENT_KEY = "pageTranslateDataUseConsentVersion";
-export const DATA_USE_CONSENT_VERSION = 1;
+/** 2: the English writing check also sends the reader's own text to DeepL. */
+export const DATA_USE_CONSENT_VERSION = 2;
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   targetLanguage: "JA",
   displayMode: "source-panel",
-  deeplPlan: "free",
+  deeplEndpoint: "auto",
   theme: "system",
   useJev: true,
+  englishVariant: "EN-US",
+  writingStyle: "default",
+  composeUsePage: true,
 };
 
 export type ExtensionMessage =
@@ -96,7 +112,16 @@ export type ExtensionMessage =
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
   | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string; scroll?: boolean }
-  | { type: "UPDATE_FOCUS_ANCHOR"; anchor: FocusAnchor };
+  | { type: "UPDATE_FOCUS_ANCHOR"; anchor: FocusAnchor }
+  | { type: "PAGE_TEXT" }
+  | { type: "COMPOSE_TRANSLATE"; text: string; targetLang: ComposeLanguage; context?: string }
+  | { type: "COMPOSE_REPHRASE"; text: string; targetLang: EnglishVariant; style: WritingStyle };
+
+/** English variants DeepL writes; the writing check compares against one of them. */
+export type EnglishVariant = "EN-US" | "EN-GB";
+export type ComposeLanguage = EnglishVariant | "JA";
+/** DeepL Write `writing_style` values offered in the panel. */
+export type WritingStyle = "default" | "simple" | "business" | "casual" | "academic";
 
 /** Port name for page-click mode: the side panel connects to the tab while the mode is on. */
 export const PAGE_PICK_PORT = "page-pick";
@@ -125,4 +150,6 @@ export interface RuntimeError {
 
 export interface ProviderStatus {
   providers: { jev: boolean; deepl: boolean };
+  /** DeepL plan the registered key is used with (after "auto" detection); null without a key. */
+  deeplPlan: DeepLPlan | null;
 }

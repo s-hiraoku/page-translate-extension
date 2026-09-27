@@ -1,5 +1,5 @@
-import type { CandidateSegment, DeepLPlan, Decision, TargetLanguage } from "../shared/types";
-import { PROVIDER_KEYS_KEY, SETTINGS_KEY, DEFAULT_SETTINGS, type ExtensionSettings } from "../shared/types";
+import type { CandidateSegment, ComposeLanguage, DeepLPlan, Decision, EnglishVariant, TargetLanguage, WritingStyle } from "../shared/types";
+import { PROVIDER_KEYS_KEY, SETTINGS_KEY, DEFAULT_SETTINGS, resolveDeepLPlan, type ExtensionSettings, type ProviderStatus } from "../shared/types";
 
 type ProviderKeys = { typesafeApiKey: string; deeplApiKey: string };
 type DecisionResult = { decisions: Array<{ id: string; decision: Decision; confidence: number }> };
@@ -7,12 +7,15 @@ type TranslationResult = { translations: Array<{ id: string; translatedText: str
 
 const EMPTY_KEYS: ProviderKeys = { typesafeApiKey: "", deeplApiKey: "" };
 
-export async function providerStatus(): Promise<{ providers: { jev: boolean; deepl: boolean } }> {
-  const keys = await readProviderKeys();
-  return { providers: { jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey) } };
+export async function providerStatus(): Promise<ProviderStatus> {
+  const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
+  return {
+    providers: { jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey) },
+    deeplPlan: keys.deeplApiKey ? resolveDeepLPlan(settings.deeplEndpoint, keys.deeplApiKey) : null,
+  };
 }
 
-export async function saveProviderKeys(typesafeApiKey: string, deeplApiKey: string): Promise<{ providers: { jev: boolean; deepl: boolean } }> {
+export async function saveProviderKeys(typesafeApiKey: string, deeplApiKey: string): Promise<ProviderStatus> {
   const current = await readProviderKeys();
   const next = {
     typesafeApiKey: typesafeApiKey.trim() || current.typesafeApiKey,
@@ -23,7 +26,7 @@ export async function saveProviderKeys(typesafeApiKey: string, deeplApiKey: stri
   return providerStatus();
 }
 
-export async function clearProviderKeys(): Promise<{ providers: { jev: boolean; deepl: boolean } }> {
+export async function clearProviderKeys(): Promise<ProviderStatus> {
   await chrome.storage.session.remove(PROVIDER_KEYS_KEY);
   return providerStatus();
 }
@@ -119,22 +122,14 @@ export async function translateSegments(
   segments: CandidateSegment[],
   targetLanguage: TargetLanguage,
 ): Promise<TranslationResult> {
-  const [keys, storedSettings] = await Promise.all([
-    readProviderKeys(),
-    chrome.storage.local.get(SETTINGS_KEY),
-  ]);
-  if (!keys.deeplApiKey) throw new Error("設定画面でDeepLのAPIキーを登録してください。");
+  const { key, host } = await deeplAccess();
   validateSegments(segments);
-
-  const settings = { ...DEFAULT_SETTINGS, ...(storedSettings[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) };
-  const plan: DeepLPlan = settings.deeplPlan === "pro" ? "pro" : "free";
-  const host = plan === "pro" ? "https://api.deepl.com" : "https://api-free.deepl.com";
   const translations: TranslationResult["translations"] = [];
 
   for (const batch of batchByCountAndSize(segments, 35, 100_000, (item) => new TextEncoder().encode(item.sourceHtml).byteLength)) {
     const response = await fetch(`${host}/v2/translate`, {
       method: "POST",
-      headers: { Authorization: `DeepL-Auth-Key ${keys.deeplApiKey}`, "Content-Type": "application/json" },
+      headers: { Authorization: `DeepL-Auth-Key ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         text: batch.map((segment) => segment.sourceHtml),
         target_lang: targetLanguage,
@@ -178,6 +173,68 @@ async function readProviderKeys(): Promise<ProviderKeys> {
     typesafeApiKey: typeof raw?.typesafeApiKey === "string" ? raw.typesafeApiKey : EMPTY_KEYS.typesafeApiKey,
     deeplApiKey: typeof raw?.deeplApiKey === "string" ? raw.deeplApiKey : EMPTY_KEYS.deeplApiKey,
   };
+}
+
+/** Plain-text translation for the writing check; `context` steers wording and is not translated. */
+export async function translateText(text: string, targetLang: ComposeLanguage, context = ""): Promise<{ text: string }> {
+  const { key, host } = await deeplAccess();
+  validateComposeText(text);
+  const response = await fetch(`${host}/v2/translate`, {
+    method: "POST",
+    headers: { Authorization: `DeepL-Auth-Key ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: [text],
+      target_lang: targetLang,
+      ...(context.trim() ? { context: context.slice(0, 4_000) } : {}),
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  const result = await readJson<{ translations?: Array<{ text?: string }> }>(response, "DeepL");
+  const translated = result.translations?.[0]?.text;
+  if (typeof translated !== "string") throw new Error("DeepLから翻訳結果を受け取れませんでした。");
+  return { text: translated };
+}
+
+/**
+ * DeepL Write (`/v2/write/rephrase`) fixes spelling and grammar and may rewrite for
+ * clarity. It is available with paid-plan keys only (not free-plan keys ending in ":fx").
+ */
+export async function rephraseText(text: string, targetLang: EnglishVariant, style: WritingStyle): Promise<{ text: string }> {
+  const { key, host, plan } = await deeplAccess();
+  if (plan !== "pro") throw new Error("DeepL Writeの添削は有料プランのキーでのみ使えます。");
+  validateComposeText(text);
+  const response = await fetch(`${host}/v2/write/rephrase`, {
+    method: "POST",
+    headers: { Authorization: `DeepL-Auth-Key ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: [text],
+      target_lang: targetLang.toLowerCase(),
+      ...(style === "default" ? {} : { writing_style: `prefer_${style}` }),
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  const result = await readJson<{ improvements?: Array<{ text?: string }> }>(response, "DeepL Write");
+  const improved = result.improvements?.[0]?.text;
+  if (typeof improved !== "string") throw new Error("DeepL Writeから添削結果を受け取れませんでした。");
+  return { text: improved };
+}
+
+/** Key, server and plan for DeepL requests: free-plan keys must use api-free.deepl.com. */
+async function deeplAccess(): Promise<{ key: string; host: string; plan: DeepLPlan }> {
+  const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
+  if (!keys.deeplApiKey) throw new Error("設定画面でDeepLのAPIキーを登録してください。");
+  const plan = resolveDeepLPlan(settings.deeplEndpoint, keys.deeplApiKey);
+  return { key: keys.deeplApiKey, host: plan === "pro" ? "https://api.deepl.com" : "https://api-free.deepl.com", plan };
+}
+
+async function readSettings(): Promise<ExtensionSettings> {
+  const stored = await chrome.storage.local.get(SETTINGS_KEY);
+  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) };
+}
+
+function validateComposeText(text: string): void {
+  if (!text.trim()) throw new Error("文章を入力してください。");
+  if (text.length > 5_000) throw new Error("一度に確認できるのは5,000文字までです。");
 }
 
 async function readJson<T>(response: Response, provider: string): Promise<T> {

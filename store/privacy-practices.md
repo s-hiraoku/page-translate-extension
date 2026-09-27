@@ -4,14 +4,15 @@ Use these answers only after comparing them with the exact Privacy practices que
 
 ## Single purpose
 
-Translate English and Japanese text from the page the user chooses, using TypeSafe Jev to select candidate text and DeepL to translate selected text. Results are shown beside their source or directly on the page.
+Translate between English and Japanese: text from the page the user chooses (TypeSafe Jev optionally selects candidate text, DeepL translates it; results are shown beside their source or on the page), and English the user writes, which is translated back into Japanese and compared with DeepL's translation and DeepL Write correction so the user can check it.
 
 ## Data handled
 
 - Website content: page title, extracted text candidates, and text-location labels. Sent to TypeSafe Jev for classification; only selected text is sent to DeepL.
+- User-entered text (writing check): English and optional Japanese text the user types in the side panel, and, if the user keeps "use the open page as context" on, the page title and main text. Sent directly to DeepL (translate, and DeepL Write with API Pro keys). Not stored. Check which Dashboard category fits (likely "Personal communications" or "Website content") before submitting.
 - Authentication information: user-provided TypeSafe Jev and DeepL API keys. Held in Chrome session storage and sent to the respective provider only for authentication.
 - Web browsing activity: the active page URL is read to show its hostname in the panel. The URL is not included in the provider request bodies.
-- User settings and consent: target language, display mode, provider plan, and the version of the user's affirmative first-use consent. Stored locally in the Chrome profile.
+- User settings and consent: target language, display mode, DeepL server choice (auto-detected from the key by default), whether Jev is used, writing check options (English variant, DeepL Write style, page context), and the version of the user's affirmative consent. The consent version was raised to 2 when the writing check was added, so existing users are asked again before any text is sent. Stored locally in the Chrome profile.
 
 ## Use and sharing
 
@@ -21,7 +22,7 @@ All handled data is used only to provide the user-facing translation feature. Pa
 
 - API keys: Chrome `storage.session` (in-memory for the extension's current session); cleared on browser restart, extension disable, reload, or update. The user can clear them in Settings.
 - Settings and consent state: Chrome `storage.local`, not Chrome Sync.
-- Page text and translated text: held in panel/page memory only; not persisted by the extension.
+- Page text, writing check input and translated text: held in panel/page memory only; not persisted by the extension.
 
 ## Privacy policy and limited use certification
 
