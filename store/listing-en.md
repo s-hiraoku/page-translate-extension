@@ -24,6 +24,7 @@ Page Translate extracts candidate text from the current page. TypeSafe Jev selec
 - Show translations directly on the page and restore the original text
 - Let TypeSafe Jev classify candidate text before translation
 - Writing check: see what your own English conveys, compare it with DeepL's translation of what you meant, and get DeepL Write corrections (paid-plan keys)
+- Japanese to English: turn what you want to say into English, and translate it back to confirm it says what you meant
 - DeepL server detected from your key (free or paid plan can also be chosen manually)
 - Keyboard shortcuts: Alt+Shift+Y translates the page, Alt+Shift+K toggles page-click mode (Control+Shift on Mac; customizable)
 

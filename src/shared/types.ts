@@ -82,7 +82,12 @@ export interface ExtensionSettings {
   /** Writing check: English variant, DeepL Write style, and whether the open page is used as context. */
   englishVariant: EnglishVariant;
   writingStyle: WritingStyle;
-  composeUsePage: boolean;
+  /**
+   * Use the open page as DeepL context when putting the reader's Japanese into English.
+   * Replaces `composeUsePage` (on by default, and also applied to the back-translation,
+   * where it bent the meaning toward the page's topic), which is no longer read.
+   */
+  composePageContext: boolean;
 }
 
 export const SETTINGS_KEY = "pageTranslateSettings";
@@ -98,7 +103,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   useJev: true,
   englishVariant: "EN-US",
   writingStyle: "default",
-  composeUsePage: true,
+  composePageContext: false,
 };
 
 export type ExtensionMessage =
