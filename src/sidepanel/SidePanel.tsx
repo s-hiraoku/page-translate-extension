@@ -187,8 +187,8 @@ export function SidePanel() {
       port = chrome.tabs.connect(tab.id, { name: PAGE_PICK_PORT });
       port.onMessage.addListener((message: PagePickEvent) => {
         if (message.type === "exit") setPagePick(false);
-        else if (message.type === "picked") void revealPicked(message.segmentId, message.anchor);
-        else if (message.type === "added") void addFromPage(message.segment, message.followingIds, message.anchor);
+        else if (message.type === "picked") void revealPicked(message.segmentId);
+        else if (message.type === "added") void addFromPage(message.segment, message.followingIds);
       });
       port.onDisconnect.addListener(() => {
         if (cancelled) return;
@@ -211,11 +211,11 @@ export function SidePanel() {
    * Text without a translated card was clicked or selected on the page: add a card in
    * page order (or reuse the hidden one), translate it with DeepL and link it.
    */
-  async function addFromPage(segment: CandidateSegment, followingIds: string[], anchor: FocusAnchor | null): Promise<void> {
+  async function addFromPage(segment: CandidateSegment, followingIds: string[]): Promise<void> {
     const generation = generationRef.current;
     const existing = entriesRef.current.find((entry) => entry.id === segment.id);
     if (existing && (existing.state === "translated" || existing.reason === ADDING)) {
-      await revealPicked(existing.id, anchor);
+      await revealPicked(existing.id);
       return;
     }
     const entry: TranslationEntry = { ...segment, state: "pending", reason: ADDING, uncertain: false };
@@ -232,7 +232,7 @@ export function SidePanel() {
     setEntries(next);
     setError("");
     await nextPaint();
-    await revealPicked(entry.id, anchor);
+    await revealPicked(entry.id);
 
     try {
       // This runs from the port listener, so read the current settings through the ref.
@@ -256,25 +256,26 @@ export function SidePanel() {
     }
   }
 
-  /** A source was clicked on the page: line its card up with it and draw the connector. */
-  async function revealPicked(segmentId: string, anchor: FocusAnchor | null): Promise<void> {
+  /** A source was clicked on the page: bring its card to the middle of the list and draw the connector. */
+  async function revealPicked(segmentId: string): Promise<void> {
     const index = visibleRef.current.findIndex((entry) => entry.id === segmentId);
     if (index < 0) return;
     setSelectedId(segmentId);
     setError("");
+    // Wait for the selection to render, so the connector-follow effect sees the scroll.
+    await nextPaint();
     const card = document.querySelector<HTMLElement>(`[data-entry-id="${segmentId}"]`);
     if (!card) return;
-    if (anchor && panelScreenTop !== null) {
-      const cardY = card.getBoundingClientRect().top + Math.min(card.offsetHeight / 2, 22);
-      window.scrollBy({ top: cardY - (anchor.screenY - panelScreenTop), behavior: "instant" });
-    } else {
-      card.scrollIntoView({ block: "center", behavior: "instant" });
-    }
+    // Glide the card to the middle of the list; the connector follows it while it moves.
+    const delta = scrollCardIntoView(card, true);
+    // Without a known panel position the connector aims at the page's middle, which is
+    // where the centered card is too.
+    const current = anchorFor(card, panelScreenTop);
     await holdPresence();
     await sendMessage({
       type: "FOCUS_SEGMENT",
       segmentId,
-      anchor: anchorFor(card, panelScreenTop),
+      anchor: current && { screenY: current.screenY - delta },
       label: String(index + 1),
       color: entryColor(index),
       scroll: false,
@@ -467,12 +468,16 @@ export function SidePanel() {
     setError("");
     // Read the click position now: React clears event.currentTarget once this handler awaits.
     const anchor = cardAnchor(event);
+    // A card cut off at the top or bottom glides into the middle first; the page then
+    // lines the source up with where the card ends up.
+    const card = event.currentTarget.closest<HTMLElement>(".entry-card");
+    const delta = card ? scrollCardIntoView(card, false) : 0;
     try {
       await holdPresence();
       const result = await sendMessage<{ focused: boolean }>({
         type: "FOCUS_SEGMENT",
         segmentId: entry.id,
-        anchor,
+        anchor: anchor && { screenY: anchor.screenY - delta },
         label: String(index + 1),
         color: entryColor(index),
       });
@@ -693,6 +698,7 @@ export function SidePanel() {
             <button className="button primary block translate-button" type="button" onClick={() => void startTranslation()} disabled={busy} aria-busy={busy} title={withShortcut("このページを翻訳", shortcuts["translate-page"])}>
               {busy ? <span className="spinner" aria-hidden="true" /> : <Icon name="translate" />}
               {busy ? "翻訳しています…" : "このページを翻訳"}
+              {!busy && shortcuts["translate-page"] && <kbd className="button-kbd">{shortcuts["translate-page"]}</kbd>}
             </button>
 
             <div className="status" role="status" aria-live="polite">
@@ -724,6 +730,7 @@ export function SidePanel() {
                   onClick={() => setPagePick((on) => !on)}
                 >
                   <Icon name="pointer" />ページクリック
+                  {shortcuts["toggle-page-pick"] && <kbd className="button-kbd">{shortcuts["toggle-page-pick"]}</kbd>}
                 </button>
               </div>
               {pagePick && (
@@ -867,6 +874,29 @@ function anchorFor(card: HTMLElement, panelTop: number | null): FocusAnchor | un
   // Once the card leaves the panel, pin the connector to the nearest edge.
   const y = rect.top + Math.min(rect.height / 2, 22);
   return { screenY: panelTop + Math.min(Math.max(y, 8), window.innerHeight - 8) };
+}
+
+/**
+ * Scrolls the panel so the card sits in the middle of the list area (between the sticky
+ * heading and the footer), smoothly unless the reader prefers reduced motion. With
+ * `always` false, a card already fully in view stays put. Returns how far the card will
+ * move up, so callers can aim the connector at its final position.
+ */
+function scrollCardIntoView(card: HTMLElement, always: boolean): number {
+  const heading = document.querySelector<HTMLElement>(".results-heading");
+  // The heading sticks while the list scrolls; measure where it will be, not where it is.
+  const top = (heading ? parseFloat(getComputedStyle(heading).top) + heading.offsetHeight : 0) + 10;
+  const bottom = (document.querySelector(".panel-footer")?.getBoundingClientRect().top ?? window.innerHeight) - 10;
+  const rect = card.getBoundingClientRect();
+  if (!always && rect.top >= top && rect.bottom <= bottom) return 0;
+  const offset = rect.height > bottom - top ? rect.top - top : rect.top + rect.height / 2 - (top + bottom) / 2;
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  const target = Math.min(Math.max(window.scrollY + offset, 0), Math.max(max, 0));
+  const delta = target - window.scrollY;
+  if (Math.abs(delta) < 1) return 0;
+  const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.scrollTo({ top: target, behavior: smooth ? "smooth" : "instant" });
+  return delta;
 }
 
 const ADDING = "翻訳しています…";

@@ -1,5 +1,6 @@
 import type { CandidateSegment, FocusAnchor, PagePickEvent, PagePickRequest, PagePickTarget, ScanResult, SegmentRegion, TranslationEntry } from "../shared/types";
 import { PAGE_PICK_PORT, PANEL_PRESENCE_PORT } from "../shared/types";
+import { connectorPath } from "./connector";
 import { classifyRegion, detectMainContent, isHardNoise, linkDensity, segmentKind, type MainContentInfo } from "./main-content";
 
 const BLOCK_SELECTOR = [
@@ -339,19 +340,24 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
   });
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  Object.assign(svg.style, { position: "fixed", inset: "0", width: "100vw", height: "100vh", overflow: "visible" });
+  Object.assign(svg.style, {
+    position: "fixed", inset: "0", width: "100vw", height: "100vh", overflow: "visible",
+    // A soft shadow keeps the line readable on light and dark pages alike.
+    filter: "drop-shadow(0 1px 1.5px rgb(0 0 0 / .28))",
+  });
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path.setAttribute("fill", "none");
   path.setAttribute("stroke", color);
-  path.setAttribute("stroke-width", "2.5");
+  path.setAttribute("stroke-width", "2.25");
   path.setAttribute("stroke-linecap", "round");
-  path.setAttribute("stroke-dasharray", "6 5");
   const start = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   start.setAttribute("r", "3.5");
   start.setAttribute("fill", color);
   const end = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-  end.setAttribute("r", "5");
-  end.setAttribute("fill", color);
+  end.setAttribute("r", "4.5");
+  end.setAttribute("fill", "white");
+  end.setAttribute("stroke", color);
+  end.setAttribute("stroke-width", "2.5");
   svg.append(path, start, end);
   root.append(box, svg, marker);
   document.documentElement.append(root);
@@ -372,8 +378,7 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
     const x1 = clamp(rect.right + pad, 8, x2 - 24);
     const y1 = clamp(anchorY(rect), 8, window.innerHeight - 8);
     const y2 = targetY;
-    const bend = Math.max(24, (x2 - x1) / 2);
-    path.setAttribute("d", `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`);
+    path.setAttribute("d", connectorPath(x1, y1, x2, y2));
     start.setAttribute("cx", String(x1));
     start.setAttribute("cy", String(y1));
     end.setAttribute("cx", String(x2));
@@ -411,6 +416,17 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
     window.removeEventListener("keydown", onKey, true);
   };
   loop();
+  // Draw the line in from the source toward the card.
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches && typeof path.getTotalLength === "function") {
+    const length = path.getTotalLength();
+    path.style.strokeDasharray = String(length);
+    const reveal = path.animate([{ strokeDashoffset: length }, { strokeDashoffset: 0 }], { duration: 420, easing: "cubic-bezier(.2, .7, .2, 1)" });
+    // Redraws change the length; drop the dash once the line is fully drawn.
+    reveal.onfinish = () => { path.style.strokeDasharray = ""; };
+    end.animate([{ opacity: 0, transform: "scale(.4)" }, { opacity: 1, transform: "scale(1)" }], { duration: 200, delay: 320, fill: "backwards", easing: "ease-out" });
+    end.style.transformBox = "fill-box";
+    end.style.transformOrigin = "center";
+  }
   focusOverlay = state;
   return true;
 }
@@ -517,14 +533,9 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
       width: `${rect.width + 8}px`, height: `${rect.height + 8}px`, borderColor: color, background: `${color}0f`,
     });
   };
-  const anchorFor = (event: MouseEvent, element: HTMLElement): FocusAnchor | null => {
-    const zoom = pageZoomFactor();
-    const top = event.screenY - event.clientY * zoom;
-    return Number.isFinite(top) ? { screenY: top + anchorY(element.getBoundingClientRect()) * zoom } : null;
-  };
-  const add = (event: MouseEvent, element: HTMLElement, selected?: string) => {
+  const add = (element: HTMLElement, selected?: string) => {
     const segment = describeForPanel(element, selected);
-    port.postMessage({ type: "added", segment, followingIds: idsAfter(element), anchor: anchorFor(event, element) } satisfies PagePickEvent);
+    port.postMessage({ type: "added", segment, followingIds: idsAfter(element) } satisfies PagePickEvent);
   };
   const onOver = (event: PointerEvent) => {
     hovered = findTarget(event.target) ?? pickableBlock(event.target);
@@ -543,12 +554,12 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
     // Keep links and page handlers from firing: this click is for the translation.
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (block) return add(event, block);
+    if (block) return add(block);
     const target = element ? targets.get(element) : undefined;
     if (!element || !target) return;
-    port.postMessage({ type: "picked", segmentId: target.id, anchor: anchorFor(event, element) } satisfies PagePickEvent);
+    port.postMessage({ type: "picked", segmentId: target.id } satisfies PagePickEvent);
   };
-  const onMouseUp = (event: MouseEvent) => {
+  const onMouseUp = () => {
     const selection = getSelection();
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const text = normalizeText(selection.toString());
@@ -557,7 +568,7 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
     if (!block) return;
     ignoreClickUntil = performance.now() + 400;
     const whole = visibleText(block);
-    add(event, block, text === whole ? undefined : text);
+    add(block, text === whole ? undefined : text);
     selection.removeAllRanges();
   };
   const onKey = (event: KeyboardEvent) => {
