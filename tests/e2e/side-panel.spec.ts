@@ -146,6 +146,68 @@ test.describe("page-click mode", () => {
   });
 });
 
+test.describe("scrolling to a card", () => {
+  const many = (page: Page) => page.evaluate(() => {
+    const w = window as unknown as { __override: (type: string, handler: () => unknown) => void };
+    const segments = Array.from({ length: 14 }, (_, index) => ({
+      id: `segment-${index + 1}`, order: index, location: `本文 ${index + 1}`, tagName: "p", region: "main", kind: "paragraph", linkDensity: 0, isArticleTitle: false,
+      sourceText: `Paragraph ${index + 1} explains one more part of the article in a full English sentence.`,
+      sourceHtml: `Paragraph ${index + 1}`,
+    }));
+    w.__override("SCAN_ACTIVE_TAB", () => ({ title: "Long article", url: "https://example.com/long", segments, mainContentDetected: true, excludedCount: 0 }));
+  });
+
+  /** Where the card sits relative to the list area between the sticky heading and the footer. */
+  const placement = (page: Page, id: string) => page.evaluate((segmentId) => {
+    const card = document.querySelector(`[data-entry-id="${segmentId}"]`)!.getBoundingClientRect();
+    const heading = document.querySelector(".results-heading")!.getBoundingClientRect();
+    const footer = document.querySelector(".panel-footer")!.getBoundingClientRect();
+    return { visible: card.top >= heading.bottom && card.bottom <= footer.top, offCenter: Math.abs((card.top + card.bottom) / 2 - (heading.bottom + footer.top) / 2) };
+  }, id);
+
+  test("a source picked on the page glides its card to the middle of the list", async ({ page }) => {
+    await openPanel(page);
+    await page.setViewportSize({ width: 380, height: 640 });
+    await many(page);
+    await translate(page);
+    await page.locator(".pick-toggle").click();
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __emit?: unknown }).__emit)).toBe("function");
+
+    const scrollPositions: number[] = [];
+    await page.evaluate(() => window.addEventListener("scroll", () => ((window as unknown as { __scrolls: number[] }).__scrolls ??= []).push(window.scrollY)));
+    await page.evaluate(() => (window as unknown as { __emit: (event: unknown) => void }).__emit({ type: "picked", segmentId: "segment-11" }));
+
+    await expect.poll(async () => (await placement(page, "segment-11")).offCenter, { timeout: 3000 }).toBeLessThan(12);
+    expect((await placement(page, "segment-11")).visible).toBe(true);
+    await expect(page.locator('[data-entry-id="segment-11"]')).toHaveClass(/selected/);
+    // Smooth, not a jump: the panel passed through intermediate positions.
+    scrollPositions.push(...await page.evaluate(() => (window as unknown as { __scrolls: number[] }).__scrolls));
+    expect(new Set(scrollPositions).size).toBeGreaterThan(2);
+  });
+
+  test("clicking a card cut off at the bottom brings it into the middle; a card in full view stays put", async ({ page }) => {
+    await openPanel(page);
+    await page.setViewportSize({ width: 380, height: 640 });
+    await many(page);
+    await translate(page);
+
+    await page.locator('[data-entry-id="segment-1"] .entry-main').click();
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+    const cutOff = await page.evaluate(() => {
+      const footer = document.querySelector(".panel-footer")!.getBoundingClientRect().top;
+      return [...document.querySelectorAll<HTMLElement>(".entry-card")].find((card) => {
+        const rect = card.getBoundingClientRect();
+        return rect.top < footer && rect.bottom > footer;
+      })?.dataset.entryId;
+    });
+    expect(cutOff).toBeTruthy();
+    await page.locator(`[data-entry-id="${cutOff}"] .entry-main`).click({ position: { x: 40, y: 12 } });
+    await expect.poll(async () => (await placement(page, cutOff!)).offCenter, { timeout: 3000 }).toBeLessThan(12);
+  });
+});
+
 test.describe("writing check", () => {
   async function check(page: Page): Promise<void> {
     await page.getByRole("tab", { name: "英作文" }).click();
