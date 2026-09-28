@@ -296,7 +296,11 @@ textarea.field.compose-area.short { min-height: 4.5em; }
 .compose-card-error { color: var(--err-fg); font-size: 12.5px; line-height: 1.6; }
 .compose-card-muted { color: var(--faint); font-size: 12px; line-height: 1.6; }
 .compose-text { color: var(--ink); font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
-.compose-text del, .compose-legend del { margin-right: 3px; padding: 0 1px; border-radius: 3px; background: var(--err-bg); color: var(--err-fg); text-decoration-thickness: 1.5px; }
+.compose-text del, .compose-mode { margin: 4px 0 6px; }
+.compose-mode button { font-size: 12.5px; }
+.compose-intended { margin: 2px 0 8px; padding: 6px 9px; display: grid; gap: 2px; border-radius: 8px; background: var(--sunken); color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
+.compose-intended span { color: var(--muted); font-size: 10.5px; font-weight: 600; }
+.compose-legend del { margin-right: 3px; padding: 0 1px; border-radius: 3px; background: var(--err-bg); color: var(--err-fg); text-decoration-thickness: 1.5px; }
 .compose-text ins, .compose-legend ins { padding: 0 1px; border-radius: 3px; background: var(--ok-bg); color: var(--ok-fg); text-decoration: none; }
 .compose-same { margin-left: 8px; vertical-align: 2px; }
 .compose-legend { color: var(--muted); font-size: 11.5px; line-height: 1.6; }

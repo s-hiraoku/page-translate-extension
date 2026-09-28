@@ -241,4 +241,79 @@ test.describe("writing check", () => {
     expect(rephrase).toMatchObject({ style: "business", targetLang: "EN-US" });
     await expect(page.locator(".compose-results")).not.toContainText("無料プラン用");
   });
+
+  type Sent = Array<{ type: string; text?: string; targetLang?: string; context?: string; style?: string }>;
+  const composeRequests = (page: Page) => page.evaluate(() => (window as unknown as { __sent: Sent }).__sent.filter((m) => m.type.startsWith("COMPOSE_")));
+
+  // Regression (v1.4.1): the page was sent as context for the back-translation too, which bent
+  // "Perform the following tasks" into 「以下の業務を担当します」 on a job-related page.
+  test("never uses the page as context for the back-translation, and uses it for the model answer only when turned on", async ({ page }) => {
+    await openPanel(page, { deeplPlan: "free" });
+    await check(page);
+    let requests = await composeRequests(page);
+    expect(requests.every((request) => !request.context)).toBe(true);
+    expect(await sentTypes(page)).not.toContain("PAGE_TEXT");
+
+    await page.getByRole("checkbox", { name: /開いているページを文脈として使う/ }).check();
+    await page.evaluate(() => { (window as unknown as { __sent: unknown[] }).__sent.length = 0; });
+    await page.getByRole("button", { name: "英文をチェック" }).click();
+    await expect.poll(async () => (await composeRequests(page)).length).toBe(2);
+    requests = await composeRequests(page);
+    expect(requests.find((request) => request.targetLang === "JA")?.context).toBeFalsy();
+    expect(requests.find((request) => request.targetLang === "EN-US")?.context).toContain("We plan to ship version 2.0");
+  });
+
+  test("shows what the reader meant next to what their English conveys", async ({ page }) => {
+    await openPanel(page, { deeplPlan: "free" });
+    await check(page);
+    const meaning = page.locator(".compose-card").first();
+    await expect(meaning.locator(".compose-intended")).toContainText("次のバージョンのリリース予定について質問したいです。");
+    await expect(meaning).toContainText("次のバージョンのリリース予定について尋ねたいです。");
+  });
+
+  test("turns Japanese into English and translates it back, with a free key", async ({ page }) => {
+    const errors = await openPanel(page, { deeplPlan: "free" });
+    await page.getByRole("tab", { name: "英作文" }).click();
+    await page.getByRole("radio", { name: "日本語から英訳" }).click();
+    await expect(page.locator("#compose-english")).toHaveCount(0);
+    await page.locator("#compose-japanese").fill("次のバージョンのリリース予定について質問したいです。");
+    await page.getByRole("button", { name: "英語にする" }).click();
+
+    const cards = page.locator(".compose-card");
+    await expect(cards.nth(0)).toContainText("I would like to ask about the release schedule for the next version.");
+    await expect(cards.nth(0).getByRole("button", { name: "コピー" })).toBeVisible();
+    await expect(cards.nth(1)).toContainText("訳し戻し");
+    await expect(cards.nth(1).locator(".compose-intended")).toContainText("次のバージョンのリリース予定について質問したいです。");
+    await expect(page.locator(".compose-results")).toContainText("無料プラン用");
+
+    const requests = await composeRequests(page);
+    expect(requests.map((request) => `${request.type}:${request.targetLang}`)).toEqual(["COMPOSE_TRANSLATE:EN-US", "COMPOSE_TRANSLATE:JA"]);
+    // The back-translation translates DeepL's English, without the page as context.
+    expect(requests[1]).toMatchObject({ text: "I would like to ask about the release schedule for the next version." });
+    expect(requests[1].context).toBeFalsy();
+    expect(errors).toEqual([]);
+  });
+
+  test("asks for Japanese before translating", async ({ page }) => {
+    await openPanel(page);
+    await page.getByRole("tab", { name: "英作文" }).click();
+    await page.getByRole("radio", { name: "日本語から英訳" }).click();
+    await page.getByRole("button", { name: "英語にする" }).click();
+    await expect(page.locator(".compose-error")).toContainText("英語にしたい日本語を入力してください");
+    expect(await composeRequests(page)).toEqual([]);
+  });
+
+  test("with a paid key, also polishes the translation with DeepL Write", async ({ page }) => {
+    await openPanel(page, { deeplPlan: "pro" });
+    await page.getByRole("tab", { name: "英作文" }).click();
+    await page.getByRole("radio", { name: "日本語から英訳" }).click();
+    await page.locator(".compose-option select").nth(1).selectOption("business");
+    await page.locator("#compose-japanese").fill("次のバージョンのリリース予定について質問したいです。");
+    await page.getByRole("button", { name: "英語にする" }).click();
+
+    await expect(page.locator(".compose-card")).toHaveCount(3);
+    const rephrase = (await composeRequests(page)).find((request) => request.type === "COMPOSE_REPHRASE");
+    expect(rephrase).toMatchObject({ text: "I would like to ask about the release schedule for the next version.", style: "business", targetLang: "EN-US" });
+    await expect(page.locator(".compose-card").nth(2).locator("del, ins").first()).toBeVisible();
+  });
 });
