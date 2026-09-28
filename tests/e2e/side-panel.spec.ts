@@ -146,6 +146,64 @@ test.describe("page-click mode", () => {
   });
 });
 
+test.describe("connector follows the card after returning to Chrome", () => {
+  type Sent = Array<{ type: string; anchor?: { screenY: number } }>;
+  const anchors = (page: Page) => page.evaluate(() =>
+    (window as unknown as { __sent: Sent }).__sent.filter((m) => m.type === "UPDATE_FOCUS_ANCHOR").map((m) => m.anchor?.screenY));
+  const clearSent = (page: Page) => page.evaluate(() => { (window as unknown as { __sent: unknown[] }).__sent.length = 0; });
+
+  /** Translates and selects a card with a real click, which also tells the panel where it is on screen. */
+  async function select(page: Page): Promise<void> {
+    await openPanel(page);
+    await translate(page);
+    await page.locator('[data-entry-id="segment-2"] .entry-main').click();
+    await expect.poll(async () => (await sentTypes(page)).includes("FOCUS_SEGMENT")).toBe(true);
+    await clearSent(page);
+  }
+
+  // Regression: scroll updates sent while Chrome was in the background, or while another tab was in
+  // front, never reached this page's connector, and nothing lined it up again on return.
+  for (const [name, comeBack] of [
+    ["the window gets focus", (page: Page) => page.evaluate(() => window.dispatchEvent(new Event("focus")))],
+    ["the panel becomes visible", (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))],
+    ["the reader returns to the tab", (page: Page) => page.evaluate(() => (window as unknown as { __activateTab: () => void }).__activateTab())],
+  ] as const) {
+    test(`re-sends the selected card's position when ${name}`, async ({ page }) => {
+      await select(page);
+      await comeBack(page);
+      await expect.poll(async () => (await anchors(page)).length).toBe(1);
+      expect((await anchors(page))[0]).toBeGreaterThan(0);
+    });
+  }
+
+  test("sends nothing when no card is selected", async ({ page }) => {
+    await openPanel(page);
+    await translate(page);
+    await clearSent(page);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.waitForTimeout(200);
+    expect(await anchors(page)).toEqual([]);
+  });
+
+  // Regression: the panel remembered its top edge on screen from the last pointer event, so after the
+  // window moved it reported the card's height from before the move.
+  test("follows the window when it moves", async ({ page }) => {
+    await select(page);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(async () => (await anchors(page)).length).toBe(1);
+    const [before] = await anchors(page);
+
+    await page.evaluate(() => {
+      const start = window.screenY;
+      Object.defineProperty(window, "screenY", { configurable: true, get: () => start + 80 });
+    });
+    await clearSent(page);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(async () => (await anchors(page)).length).toBe(1);
+    expect((await anchors(page))[0]).toBeCloseTo(before! + 80, 0);
+  });
+});
+
 test.describe("scrolling to a card", () => {
   const many = (page: Page) => page.evaluate(() => {
     const w = window as unknown as { __override: (type: string, handler: () => unknown) => void };

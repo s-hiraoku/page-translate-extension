@@ -120,6 +120,39 @@ test.describe("connector", () => {
   });
 });
 
+test.describe("connector position", () => {
+  const endY = (page: import("@playwright/test").Page) => page.evaluate(() => {
+    const d = document.querySelector("[data-page-translate-ui] svg path")?.getAttribute("d") ?? "";
+    return Number(d.match(/-?[\d.]+/g)?.at(-1));
+  });
+
+  // Regression: the page remembered where its viewport is on screen from the last mouse move, so after
+  // the window moved or resized (e.g. while Chrome was in the background) the connector ended at the wrong card height
+  // until the mouse moved over the page again.
+  test("keeps ending at the card's screen height after the window moves", async ({ page, context, evaluateInExtension, send }) => {
+    await page.setViewportSize({ width: 1000, height: 640 });
+    await page.goto("/fixtures/article.html");
+    await send({ type: "SCAN_PAGE" });
+    await page.mouse.move(300, 300);
+    await evaluateInExtension(async (tabId) => {
+      (window as unknown as Record<string, unknown>).presence = chrome.tabs.connect(tabId, { name: "panel-presence" });
+      await chrome.tabs.sendMessage(tabId, { type: "FOCUS_SEGMENT", segmentId: "segment-4", anchor: { screenY: 400 }, label: "3", color: "#e0702a", scroll: false });
+    });
+    await expect.poll(() => endY(page)).toBeGreaterThan(0);
+    await page.waitForTimeout(1500);
+    const before = await endY(page);
+
+    const cdp = await context.newCDPSession(page);
+    const { windowId, bounds } = await cdp.send("Browser.getWindowForTarget");
+    await cdp.send("Browser.setWindowBounds", { windowId, bounds: { top: (bounds.top ?? 0) + 80 } });
+    await expect.poll(() => page.evaluate(() => window.screenY)).toBe((bounds.top ?? 0) + 80);
+
+    // The panel moved down with the window, so its card is now 80 lower on screen.
+    await send({ type: "UPDATE_FOCUS_ANCHOR", anchor: { screenY: 480 } });
+    await expect.poll(() => endY(page)).toBeCloseTo(before, 0);
+  });
+});
+
 test.describe("page-click mode", () => {
   type PickEvent = { type: string; segmentId?: string; segment?: CandidateSegment & { manual?: boolean; partial?: boolean } };
 

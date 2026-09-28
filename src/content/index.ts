@@ -1,6 +1,7 @@
 import type { CandidateSegment, FocusAnchor, PagePickEvent, PagePickRequest, PagePickTarget, ScanResult, SegmentRegion, TranslationEntry } from "../shared/types";
 import { PAGE_PICK_PORT, PANEL_PRESENCE_PORT } from "../shared/types";
 import { connectorPath } from "./connector";
+import { createScreenTopTracker, geometryTop } from "../shared/screen-top";
 import { classifyRegion, detectMainContent, isHardNoise, linkDensity, segmentKind, type MainContentInfo } from "./main-content";
 
 const BLOCK_SELECTOR = [
@@ -25,15 +26,12 @@ let tabZoom = 1;
 /** The connector stays until another segment is focused, the page is restored, or Esc is pressed. */
 let focusOverlay: { root: HTMLElement; frame: number; dispose: () => void; retarget: (anchor: FocusAnchor) => void } | null = null;
 /** Screen Y of the page viewport's top edge, learned from real pointer events. */
-let viewportScreenTop: number | null = null;
+const viewportTop = createScreenTopTracker();
 
-window.addEventListener(
-  "pointermove",
-  (event) => {
-    viewportScreenTop = event.screenY - event.clientY * pageZoomFactor();
-  },
-  { passive: true, capture: true },
-);
+// Any pointer or wheel event carries exact screen coordinates.
+for (const type of ["pointermove", "pointerdown", "pointerover", "wheel"]) {
+  window.addEventListener(type, (event) => viewportTop.learn(event as MouseEvent, pageZoomFactor()), { passive: true, capture: true });
+}
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (typeof message !== "object" || message === null || !("type" in message)) return;
@@ -290,7 +288,7 @@ function pageZoomFactor(): number {
 function anchorToClientY(anchor: FocusAnchor | undefined): number | null {
   if (!anchor || !Number.isFinite(anchor.screenY)) return null;
   const zoom = pageZoomFactor();
-  const top = viewportScreenTop ?? window.screenY + (window.outerHeight - window.innerHeight * zoom);
+  const top = viewportTop.top(zoom) ?? geometryTop(zoom);
   const y = (anchor.screenY - top) / zoom;
   return Number.isFinite(y) ? y : null;
 }
@@ -403,6 +401,9 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
   window.addEventListener("scroll", schedule, { passive: true, capture: true });
   window.addEventListener("resize", schedule, { passive: true });
   window.addEventListener("keydown", onKey, true);
+  // Coming back to the window or tab: rendering may have been paused, and the window may have moved.
+  window.addEventListener("focus", schedule);
+  document.addEventListener("visibilitychange", schedule);
   state.retarget = (next) => {
     const y = anchorToClientY(next);
     if (y === null) return;
@@ -414,6 +415,8 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
     window.removeEventListener("scroll", schedule, { capture: true });
     window.removeEventListener("resize", schedule);
     window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("focus", schedule);
+    document.removeEventListener("visibilitychange", schedule);
   };
   loop();
   // Draw the line in from the source toward the card.
