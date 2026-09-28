@@ -180,10 +180,9 @@ h1, h2, h3, p { margin: 0; }
 .entry-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 
 .entry-card { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); transition: border-color .15s, box-shadow .15s; }
-.entry-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--entry-color); opacity: .85; }
 .entry-card:hover { border-color: var(--line-strong); }
 .entry-card.selected { border-color: color-mix(in srgb, var(--entry-color) 55%, var(--line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--entry-color) 16%, transparent), var(--shadow-md); }
-.entry-main { width: 100%; padding: 11px 12px 12px 15px; display: grid; gap: 7px; border: 0; background: transparent; text-align: left; }
+.entry-main { width: 100%; padding: 12px 14px 13px; display: grid; gap: 7px; border: 0; background: transparent; text-align: left; }
 .entry-topline { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .entry-number { flex: 0 0 auto; min-width: 20px; height: 20px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 99px; background: var(--entry-color); color: #fff; font: 600 10.5px/1 var(--mono); }
 .entry-location { overflow: hidden; min-width: 0; flex: 1; color: var(--muted); font-size: 11.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
@@ -198,7 +197,7 @@ h1, h2, h3, p { margin: 0; }
 .badge.review { background: var(--warn-bg); color: var(--warn-fg); }
 .badge.error { background: var(--err-bg); color: var(--err-fg); }
 
-.review-action { margin: -2px 12px 12px 15px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--warn-line); border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; font-weight: 600; }
+.review-action { margin: -2px 14px 12px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--warn-line); border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; font-weight: 600; }
 .review-action:hover { filter: brightness(.97); }
 
 /* Keyboard shortcut shown inside a button; takes its colors from the button. */
