@@ -160,9 +160,9 @@ export type PagePickRequest = { type: "targets"; targets: PagePickTarget[]; zoom
 
 /** Page → side panel over the page-pick port. */
 export type PagePickEvent =
-  | { type: "picked"; segmentId: string; anchor: FocusAnchor | null }
+  | { type: "picked"; segmentId: string }
   /** Text that is not a translated card yet. `followingIds` are known segments after it, in page order. */
-  | { type: "added"; segment: CandidateSegment; followingIds: string[]; anchor: FocusAnchor | null }
+  | { type: "added"; segment: CandidateSegment; followingIds: string[] }
   | { type: "exit" };
 
 export interface RuntimeError {
