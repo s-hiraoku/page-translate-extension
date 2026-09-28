@@ -744,25 +744,23 @@ export function SidePanel() {
               )}
               <ol className="entry-list">
                 {visibleEntries.map((entry, index) => (
-                  <li key={entry.id} style={{ "--entry-order": Math.min(index, 12) } as React.CSSProperties}>
+                  <li key={entry.id}>
                     <article data-entry-id={entry.id} className={`entry-card ${selectedId === entry.id ? "selected" : ""} ${entry.state}`} style={{ "--entry-color": entryColor(index) } as React.CSSProperties}>
                       <button className="entry-main" type="button" onClick={(event) => void focusEntry(entry, index, event)} aria-label={`${index + 1}番目：${entry.location}の原文位置へ移動`}>
-                        <span className="entry-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="entry-body">
-                          <span className="entry-topline">
-                            <span className="entry-location">{entry.location}</span>
-                            {entry.state !== "translated" && <span className={`badge ${entry.state}`}>{stateLabel(entry.state)}</span>}
-                            {entry.state === "translated" && entry.uncertain && (
-                              <span className="badge review" title="Jevの判定があいまいだったため、自動で翻訳しました">要確認</span>
-                            )}
-                          </span>
-                          {entry.state === "translated" ? (
-                            <span className="entry-translation">{entry.translatedText}</span>
-                          ) : (
-                            <span className="entry-review">{entry.reason ?? "判定を確認してください。"}</span>
+                        <span className="entry-topline">
+                          <span className="entry-number">{index + 1}</span>
+                          <span className="entry-location">{entry.location}</span>
+                          {entry.state !== "translated" && <span className={`badge ${entry.state}`}>{stateLabel(entry.state)}</span>}
+                          {entry.state === "translated" && entry.uncertain && (
+                            <span className="badge review" title="Jevの判定があいまいだったため、自動で翻訳しました">要確認</span>
                           )}
-                          <span className="entry-source" lang={settings.targetLanguage === "JA" ? "en" : "ja"}>{entry.sourceText}</span>
                         </span>
+                        {entry.state === "translated" ? (
+                          <span className="entry-translation">{entry.translatedText}</span>
+                        ) : (
+                          <span className="entry-review">{entry.reason ?? "判定を確認してください。"}</span>
+                        )}
+                        <span className="entry-source" lang={settings.targetLanguage === "JA" ? "en" : "ja"}>{entry.sourceText}</span>
                       </button>
                       {entry.state === "review" && (
                         <button className="review-action" type="button" onClick={() => void translateOne(entry)}>
