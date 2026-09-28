@@ -59,14 +59,14 @@ npm run zip
 
 `npm run zip` は `.output/page-translate-v<version>-chrome.zip` を作成します。ZIPを開いたとき、`manifest.json` が直下にある構成です。開発中は `dist` を `chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」から読み込みます。
 
-`main` への push では、GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をアーティファクトとして残します。アーティファクト名は ZIP のファイル名と同じです（例: `page-translate-v1.4.1-chrome.zip`）。ダウンロードしたファイルが提出用 ZIP そのものです。
+`main` への push では、GitHub Actions が同じ `npm run zip` を実行し、できた ZIP をアーティファクトとして残します。アーティファクト名は ZIP のファイル名と同じです（例: `page-translate-v1.4.2-chrome.zip`）。ダウンロードしたファイルが提出用 ZIP そのものです。
 
-公開するときは、`src/manifest.ts` の `version` と `package.json` の `version` を同じ新しい値にして `main` にマージします。マージすると GitHub Actions の「Release」ワークフローが自動で動き、`npm test` と `npm run zip` を実行して、`v1.4.1` のようなタグと GitHub Release を作り、ZIP を添付します。すでにリリース済みの version のままなら何もしません。
+公開するときは、`src/manifest.ts` の `version` と `package.json` の `version` を同じ新しい値にして `main` にマージします。マージすると GitHub Actions の「Release」ワークフローが自動で動き、`npm test` と `npm run zip` を実行して、`v1.4.2` のようなタグと GitHub Release を作り、ZIP を添付します。すでにリリース済みの version のままなら何もしません。
 
 ほかに次の方法でもリリースできます。
 
 - GitHub の Actions タブで「Release」ワークフローを手動実行する（`ref` は通常 `main`）。同じタグがすでにある場合は失敗します。
-- `v1.4.1` のように `v` と version を続けたタグを push する。
+- `v1.4.2` のように `v` と version を続けたタグを push する。
 
 ### テスト
 
