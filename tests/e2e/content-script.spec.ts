@@ -120,6 +120,24 @@ test.describe("connector", () => {
   });
 });
 
+test.describe("connector and the page being left", () => {
+  // A page restored from the back/forward cache comes back as it was left, connector included.
+  test("is removed when the page is hidden, even if the panel never said goodbye", async ({ page, evaluateInExtension, send }) => {
+    await page.goto("/fixtures/article.html");
+    await send({ type: "SCAN_PAGE" });
+    await evaluateInExtension(async (tabId) => {
+      (window as unknown as Record<string, unknown>).presence = chrome.tabs.connect(tabId, { name: "panel-presence" });
+      await chrome.tabs.sendMessage(tabId, { type: "FOCUS_SEGMENT", segmentId: "segment-2", anchor: { screenY: 300 }, label: "2", color: "#0f8a6c" });
+    });
+    const shown = () => page.evaluate(() => [...document.querySelectorAll("[data-page-translate-ui]")].some((element) => element.querySelector("svg")));
+    await expect.poll(shown).toBe(true);
+
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
+
+    await expect.poll(shown).toBe(false);
+  });
+});
+
 test.describe("connector position", () => {
   const endY = (page: import("@playwright/test").Page) => page.evaluate(() => {
     const d = document.querySelector("[data-page-translate-ui] svg path")?.getAttribute("d") ?? "";

@@ -479,6 +479,11 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+// A page kept in the back/forward cache comes back as it was left; nothing of the panel should be on it.
+const dropPanelMarks = () => { clearFocusOverlay(); closeSelectionTooltip(); };
+window.addEventListener("pagehide", dropPanelMarks);
+window.addEventListener("pageshow", (event) => { if (event.persisted) dropPanelMarks(); });
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PAGE_WATCH_PORT) return;
   watchPageChanges(port);
