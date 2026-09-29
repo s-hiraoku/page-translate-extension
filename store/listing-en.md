@@ -27,7 +27,8 @@ Page Translate extracts candidate text from the current page. TypeSafe Jev selec
 - Japanese to English: turn what you want to say into English, and translate it back to confirm it says what you meant
 - Translation cache: reopen a page within a few hours and its saved translation is reused (changed passages are translated again)
 - DeepL server detected from your key (free or paid plan can also be chosen manually)
-- Keyboard shortcuts: Alt+Shift+Y translates the page, Alt+Shift+K toggles page-click mode (Control+Shift on Mac; customizable)
+- Selection translation: translate just the text you select on a page, shown in a tooltip right next to it
+- Keyboard shortcuts: Alt+Shift+Y translates the page, Alt+Shift+K toggles page-click mode, Alt+Shift+S translates the selected text (Control+Shift on Mac; customizable)
 
 ### API keys
 

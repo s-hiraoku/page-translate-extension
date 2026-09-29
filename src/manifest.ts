@@ -30,7 +30,7 @@ export default defineManifest({
   side_panel: { default_path: "src/sidepanel/index.html" },
   // Mac uses Control (not Command or Option): Chrome and macOS leave Control+Shift+letter free,
   // and Option+letter types characters. Chrome keeps Alt+Shift+A/B/C/P/T/W/X/Z for itself (a
-  // suggested key there is never assigned), hence Y for 訳 and K for クリック.
+  // suggested key there is never assigned), hence Y for 訳, K for クリック and S for 選択.
   commands: {
     "translate-page": {
       suggested_key: { default: "Alt+Shift+Y", mac: "MacCtrl+Shift+Y" },
@@ -39,6 +39,11 @@ export default defineManifest({
     "toggle-page-pick": {
       suggested_key: { default: "Alt+Shift+K", mac: "MacCtrl+Shift+K" },
       description: "ページクリックのオン・オフ",
+    },
+    // S for 選択 (selection): translates the text selected on the page right now, in a tooltip.
+    "translate-selection": {
+      suggested_key: { default: "Alt+Shift+S", mac: "MacCtrl+Shift+S" },
+      description: "選択した文章を翻訳",
     },
   },
   content_scripts: [

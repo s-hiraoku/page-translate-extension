@@ -77,6 +77,16 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     case "COMPOSE_REPHRASE":
       requireExtensionPage(sender);
       return rephraseText(message.text, message.targetLang, message.style);
+    // Selection translation reads the page's selection and sends it to DeepL: only the side panel may ask.
+    case "READ_SELECTION":
+      requireExtensionPage(sender);
+      return sendToActiveTab({ type: "READ_SELECTION" });
+    case "TRANSLATE_SELECTION":
+      requireExtensionPage(sender);
+      return translateText(message.text, message.targetLang);
+    case "SELECTION_RESULT":
+      requireExtensionPage(sender);
+      return sendToActiveTab(message);
     case "OPEN_SIDE_PANEL":
       return undefined;
   }

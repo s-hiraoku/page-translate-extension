@@ -125,6 +125,9 @@ export type ExtensionMessage =
   | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string; scroll?: boolean }
   | { type: "UPDATE_FOCUS_ANCHOR"; anchor: FocusAnchor }
   | { type: "PAGE_TEXT" }
+  | { type: "READ_SELECTION" }
+  | { type: "TRANSLATE_SELECTION"; text: string; targetLang: ComposeLanguage }
+  | { type: "SELECTION_RESULT"; id: number; text?: string; note?: string; error?: string }
   | { type: "COMPOSE_TRANSLATE"; text: string; targetLang: ComposeLanguage; context?: string }
   | { type: "COMPOSE_REPHRASE"; text: string; targetLang: EnglishVariant; style: WritingStyle };
 
@@ -135,7 +138,7 @@ export type ComposeLanguage = EnglishVariant | "JA";
 export type WritingStyle = "default" | "simple" | "business" | "casual" | "academic";
 
 /** Keyboard shortcuts (manifest `commands`) the side panel carries out. */
-export const PANEL_COMMANDS = ["translate-page", "toggle-page-pick"] as const;
+export const PANEL_COMMANDS = ["translate-page", "toggle-page-pick", "translate-selection"] as const;
 export type PanelCommand = (typeof PANEL_COMMANDS)[number];
 /**
  * chrome.storage.session key where the service worker leaves the latest shortcut for the
@@ -175,6 +178,18 @@ export type PagePickEvent =
   /** Text that is not a translated card yet. `followingIds` are known segments after it, in page order. */
   | { type: "added"; segment: CandidateSegment; followingIds: string[] }
   | { type: "exit" };
+
+/** Port name for selection translation: the side panel connects to the tab while the mode is on. */
+export const SELECTION_PORT = "selection-translate";
+
+/** Longest selection that is translated (DeepL characters are billed). */
+export const SELECTION_MAX_CHARS = 5000;
+
+/** Page → side panel over the selection port: the reader selected this text. `id` ties the answer to its tooltip. */
+export type SelectionEvent = { type: "selected"; id: number; text: string };
+
+/** What the page returns for READ_SELECTION. `empty` means nothing translatable was selected (the page says so itself). */
+export type ReadSelectionResult = { empty: true } | { empty?: false; id: number; text: string };
 
 export interface RuntimeError {
   error: string;

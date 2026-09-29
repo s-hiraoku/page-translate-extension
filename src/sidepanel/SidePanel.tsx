@@ -3,6 +3,7 @@ import type {
   CandidateSegment,
   Decision,
   DeepLEndpoint,
+  ComposeLanguage,
   DeepLPlan,
   DisplayMode,
   ExtensionMessage,
@@ -12,13 +13,15 @@ import type {
   PanelCommand,
   PagePickRequest,
   ProviderStatus,
+  ReadSelectionResult,
   ScanResult,
   SegmentState,
+  SelectionEvent,
   TargetLanguage,
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -64,6 +67,7 @@ const jevOptions: Array<{ value: boolean; label: string }> = [
 const shortcutRows: Array<{ command: PanelCommand; label: string; short: string }> = [
   { command: "translate-page", label: "このページを翻訳", short: "翻訳" },
   { command: "toggle-page-pick", label: "ページクリックのオン・オフ", short: "ページクリック" },
+  { command: "translate-selection", label: "選択した文章を翻訳", short: "選択翻訳" },
 ];
 
 function withShortcut(label: string, shortcut: string | undefined): string {
@@ -100,6 +104,8 @@ export function SidePanel() {
   const [droppedCount, setDroppedCount] = useState(0);
   /** Page-click mode: clicking translated text on the page selects its card. */
   const [pagePick, setPagePick] = useState(false);
+  /** Selection translation: selecting text on the page shows its translation in a tooltip. */
+  const [selectionMode, setSelectionMode] = useState(false);
   /** Set once the stored settings are read, so nothing acts on the defaults in the meantime. */
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   /** What the last run took from the translation cache, shown under the status. */
@@ -222,6 +228,40 @@ export function SidePanel() {
   // A finished scan (which also means data-use consent was given) enables page-click mode,
   // even when it left no visible cards: that is when adding one by hand matters most.
   const scanned = !busy && pageUrl !== "";
+
+  // Both modes react to selecting text on the page, so only one can be on.
+  useEffect(() => { if (pagePick) setSelectionMode(false); }, [pagePick]);
+  useEffect(() => { if (selectionMode) setPagePick(false); }, [selectionMode]);
+
+  // While selection translation is on, hold a port to the tab: it reports each selection, and the
+  // translation goes back to the page's tooltip. Closing the panel drops the port and ends the mode.
+  const translateSelectedRef = useRef<(id: number, text: string) => void>(() => undefined);
+  useEffect(() => {
+    if (!selectionMode) return;
+    let port: chrome.runtime.Port | null = null;
+    let cancelled = false;
+    void (async () => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (cancelled || tab?.id === undefined) return;
+      port = chrome.tabs.connect(tab.id, { name: SELECTION_PORT });
+      port.onMessage.addListener((message: SelectionEvent) => {
+        if (message.type === "selected") translateSelectedRef.current(message.id, message.text);
+      });
+      port.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError;
+        if (cancelled) return;
+        setSelectionMode(false);
+        setError("ページとの接続が切れたため、選択範囲翻訳を終了しました。");
+      });
+    })().catch((caught: unknown) => {
+      setSelectionMode(false);
+      setError(errorMessage(caught));
+    });
+    return () => {
+      cancelled = true;
+      port?.disconnect();
+    };
+  }, [selectionMode]);
 
   // While page-click mode is on, hold a port to the tab. The page reports clicks on
   // translated text through it; closing the panel drops the port and ends the mode.
@@ -367,6 +407,10 @@ export function SidePanel() {
   async function runCommand(command: PanelCommand): Promise<void> {
     setSettingsOpen(false);
     setView("translate");
+    if (command === "translate-selection") {
+      if (!consentOpen) await translateCurrentSelection();
+      return;
+    }
     if (busy || consentOpen) return;
     if (command === "translate-page") {
       await startTranslation();
@@ -375,6 +419,61 @@ export function SidePanel() {
     } else if (await startTranslation()) {
       setPagePick(true);
     }
+  }
+
+  /** Translations of selections already made, so selecting the same text again costs nothing. */
+  const selectionCache = useRef(new Map<string, string>());
+  translateSelectedRef.current = (id, text) => void translateSelected(id, text);
+
+  /** Translates selected text and hands the result to the page's tooltip (`id` names the tooltip). */
+  async function translateSelected(id: number, text: string): Promise<void> {
+    const current = settingsRef.current;
+    const report = (result: { text?: string; note?: string; error?: string }) =>
+      sendMessage({ type: "SELECTION_RESULT", id, ...result }).catch(() => undefined);
+    if (isInTargetLanguage(text, current.targetLanguage)) {
+      await report({ note: `選択した文章は、すでに${current.targetLanguage === "JA" ? "日本語" : "英語"}です。` });
+      return;
+    }
+    const targetLang: ComposeLanguage = current.targetLanguage === "JA" ? "JA" : current.englishVariant;
+    const key = `${targetLang}\n${text}`;
+    const known = selectionCache.current.get(key);
+    if (known !== undefined) {
+      await report({ text: known });
+      return;
+    }
+    try {
+      const result = await sendMessage<{ text: string }>({ type: "TRANSLATE_SELECTION", text, targetLang });
+      selectionCache.current.set(key, result.text);
+      // Keep the newest 50; a Map iterates in insertion order.
+      if (selectionCache.current.size > 50) selectionCache.current.delete(selectionCache.current.keys().next().value as string);
+      await report({ text: result.text });
+    } catch (caught) {
+      await report({ error: errorMessage(caught) });
+    }
+  }
+
+  /** The shortcut: translate whatever is selected on the page right now, once. */
+  async function translateCurrentSelection(): Promise<void> {
+    try {
+      const read = await sendMessage<ReadSelectionResult>({ type: "READ_SELECTION" });
+      if (read.empty) return;
+      if (!(await ensureConsent())) {
+        await sendMessage({ type: "SELECTION_RESULT", id: read.id, note: "データ送信に同意されなかったため、翻訳しませんでした。" }).catch(() => undefined);
+        return;
+      }
+      await translateSelected(read.id, read.text);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }
+
+  async function toggleSelectionMode(): Promise<void> {
+    if (selectionMode) {
+      setSelectionMode(false);
+      return;
+    }
+    setError("");
+    if (await ensureConsent()) setSelectionMode(true);
   }
 
   async function loadShortcuts(): Promise<void> {
@@ -868,6 +967,33 @@ export function SidePanel() {
               {!busy && shortcuts["translate-page"] && <kbd className="button-kbd">{shortcuts["translate-page"]}</kbd>}
             </button>
 
+            <div className="tool-row">
+              <button
+                type="button"
+                className={`pick-toggle ${pagePick ? "active" : ""}`}
+                aria-pressed={pagePick}
+                disabled={!scanned}
+                title={scanned ? withShortcut("ページ上の本文をクリックして、対応する訳文を表示します", shortcuts["toggle-page-pick"]) : "先に「このページを翻訳」を実行してください"}
+                onClick={() => setPagePick((on) => !on)}
+              >
+                <Icon name="pointer" />ページクリック
+                {shortcuts["toggle-page-pick"] && <kbd className="button-kbd">{shortcuts["toggle-page-pick"]}</kbd>}
+              </button>
+              <button
+                type="button"
+                className={`pick-toggle selection-toggle ${selectionMode ? "active" : ""}`}
+                aria-pressed={selectionMode}
+                title={withShortcut("ページ上で選んだ文章を、その場で翻訳します（ショートカットは選択中の文章を1回だけ翻訳）", shortcuts["translate-selection"])}
+                onClick={() => void toggleSelectionMode()}
+              >
+                <Icon name="selection" />選択範囲翻訳
+                {shortcuts["translate-selection"] && <kbd className="button-kbd">{shortcuts["translate-selection"]}</kbd>}
+              </button>
+            </div>
+            {selectionMode && (
+              <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上で文章を選ぶと、その場に訳を表示します。Escで閉じます</p>
+            )}
+
             <div className="status" role="status" aria-live="polite">
               <div className="status-row">
                 <span className={`status-dot ${busy ? "busy" : entries.length > 0 ? "done" : ""}`} aria-hidden="true" />
@@ -900,16 +1026,6 @@ export function SidePanel() {
               <div className="results-heading">
                 <h2 id="results-title">翻訳箇所</h2>
                 <span className="count">{visibleEntries.length}</span>
-                <button
-                  type="button"
-                  className={`pick-toggle ${pagePick ? "active" : ""}`}
-                  aria-pressed={pagePick}
-                  title={withShortcut("ページ上の本文をクリックして、対応する訳文を表示します", shortcuts["toggle-page-pick"])}
-                  onClick={() => setPagePick((on) => !on)}
-                >
-                  <Icon name="pointer" />ページクリック
-                  {shortcuts["toggle-page-pick"] && <kbd className="button-kbd">{shortcuts["toggle-page-pick"]}</kbd>}
-                </button>
               </div>
               {pagePick && (
                 <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />本文をクリックで訳文を表示。翻訳されていない箇所はクリックか文字の選択で追加して翻訳します。Escで終了</p>
@@ -991,7 +1107,7 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定でJevを使わない場合は、抽出した文章をDeepLにだけ送ります）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定でJevを使わない場合は、抽出した文章をDeepLにだけ送ります）。選択範囲翻訳では、選んだ文章がDeepLにだけ送られます。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe JevとDeepLです。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a></p>
             <div className="consent-actions">

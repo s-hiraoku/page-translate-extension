@@ -2,13 +2,14 @@ import { expect, test as panelTest, type Page } from "@playwright/test";
 import { installChromeMock, pressShortcut, sentTypes, type MockOptions } from "./support/chrome-mock";
 import { test as extensionTest } from "./support/extension";
 
-extensionTest("the built extension registers both shortcuts with their default keys", async ({ driver }) => {
+extensionTest("the built extension registers its shortcuts with their default keys", async ({ driver }) => {
   const commands = await driver.evaluate(() => chrome.commands.getAll());
   const byName = Object.fromEntries(commands.map((command) => [command.name, command.shortcut]));
 
   // Linux and Windows keys; Mac uses Control+Shift instead of Alt+Shift.
   expect(byName["translate-page"]).toBe("Alt+Shift+Y");
   expect(byName["toggle-page-pick"]).toBe("Alt+Shift+K");
+  expect(byName["translate-selection"]).toBe("Alt+Shift+S");
 });
 
 async function openPanel(page: Page, options: MockOptions = {}): Promise<string[]> {
@@ -58,7 +59,7 @@ panelTest.describe("keyboard shortcuts in the side panel", () => {
 
   panelTest("the page-click shortcut translates first, then toggles the mode", async ({ page }) => {
     await openPanel(page);
-    const toggle = page.locator(".pick-toggle");
+    const toggle = page.locator(".pick-toggle").first();
 
     await pressShortcut(page, "toggle-page-pick");
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
@@ -76,7 +77,9 @@ panelTest.describe("keyboard shortcuts in the side panel", () => {
     await pressShortcut(page, "toggle-page-pick");
     await page.getByRole("dialog").getByRole("button", { name: "キャンセル" }).click();
 
-    await expect(page.locator(".pick-toggle")).toHaveCount(0);
+    // Nothing was scanned, so page-click mode stays unavailable.
+    await expect(page.locator(".pick-toggle").first()).toBeDisabled();
+    await expect(page.locator(".pick-toggle").first()).toHaveAttribute("aria-pressed", "false");
     expect(await sentTypes(page)).not.toContain("SCAN_ACTIVE_TAB");
   });
 
