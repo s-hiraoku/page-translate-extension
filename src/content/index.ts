@@ -1,5 +1,6 @@
-import type { CandidateSegment, FocusAnchor, PagePickEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionEvent, TranslationEntry } from "../shared/types";
-import { PAGE_PICK_PORT, PANEL_PRESENCE_PORT, SELECTION_PORT } from "../shared/types";
+import type { CandidateSegment, FocusAnchor, PagePickEvent, PageWatchEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionEvent, TranslationEntry } from "../shared/types";
+import { PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_PRESENCE_PORT, SELECTION_PORT } from "../shared/types";
+import { normalizePageUrl } from "../shared/page-url";
 import { readCurrentSelection, type CurrentSelection } from "./selection";
 import { createSelectionTooltip, type SelectionTooltip, type TooltipState } from "./selection-tooltip";
 import type { Box } from "./tooltip-layout";
@@ -471,9 +472,48 @@ chrome.runtime.onConnect.addListener((port) => {
   panelPorts += 1;
   port.onDisconnect.addListener(() => {
     panelPorts = Math.max(0, panelPorts - 1);
-    if (panelPorts === 0) clearFocusOverlay();
+    if (panelPorts === 0) {
+      clearFocusOverlay();
+      closeSelectionTooltip();
+    }
   });
 });
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PAGE_WATCH_PORT) return;
+  watchPageChanges(port);
+});
+
+/**
+ * Tells the side panel when this document shows another page without being reloaded (a
+ * single-page app changing its route). A full navigation needs no message: this script goes
+ * away with the page, which closes the port. A change of `#fragment` or tracking parameters is
+ * the same page; the panel keeps its results.
+ */
+function watchPageChanges(port: chrome.runtime.Port): void {
+  let current = normalizePageUrl(location.href);
+  const check = () => {
+    const next = normalizePageUrl(location.href);
+    if (next === current) return;
+    current = next;
+    // The connector, page-click targets and tooltip belonged to the page that was just replaced.
+    clearFocusOverlay();
+    stopPagePick();
+    stopSelectionMode();
+    pageElements.clear();
+    port.postMessage({ type: "navigated" } satisfies PageWatchEvent);
+  };
+  // The Navigation API reports pushState/replaceState/back/forward from any world; the poll covers browsers or pages where it does not.
+  const navigation = (window as unknown as { navigation?: EventTarget }).navigation;
+  navigation?.addEventListener("currententrychange", check);
+  window.addEventListener("popstate", check);
+  const timer = window.setInterval(check, 1000);
+  port.onDisconnect.addListener(() => {
+    navigation?.removeEventListener("currententrychange", check);
+    window.removeEventListener("popstate", check);
+    window.clearInterval(timer);
+  });
+}
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PAGE_PICK_PORT) return;

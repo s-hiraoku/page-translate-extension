@@ -179,6 +179,16 @@ export type PagePickEvent =
   | { type: "added"; segment: CandidateSegment; followingIds: string[] }
   | { type: "exit" };
 
+/**
+ * Held open by the side panel to the tab whose page it shows results for. The page reports a
+ * navigation inside the page (history.pushState and the like) over it; a full navigation,
+ * a reload or closing the tab drops the port. Either way the panel returns to its start screen.
+ */
+export const PAGE_WATCH_PORT = "page-watch";
+
+/** Page → side panel over the page-watch port. */
+export type PageWatchEvent = { type: "navigated" };
+
 /** Port name for selection translation: the side panel connects to the tab while the mode is on. */
 export const SELECTION_PORT = "selection-translate";
 
