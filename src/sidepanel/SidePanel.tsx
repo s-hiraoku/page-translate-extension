@@ -10,6 +10,7 @@ import type {
   ExtensionSettings,
   FocusAnchor,
   PagePickEvent,
+  PageWatchEvent,
   PanelCommand,
   PagePickRequest,
   ProviderStatus,
@@ -21,7 +22,7 @@ import type {
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -64,6 +65,11 @@ const jevOptions: Array<{ value: boolean; label: string }> = [
   { value: false, label: "Jevを使わない" },
 ];
 
+const INITIAL_STATUS = "ページを開いて「翻訳を開始」を押してください。";
+
+/** Which of the two modes that react to selecting text on the page is on. One value, so both can never be. */
+type PickMode = "off" | "page-click" | "selection";
+
 const shortcutRows: Array<{ command: PanelCommand; label: string; short: string }> = [
   { command: "translate-page", label: "このページを翻訳", short: "翻訳" },
   { command: "toggle-page-pick", label: "ページクリックのオン・オフ", short: "ページクリック" },
@@ -90,7 +96,7 @@ export function SidePanel() {
   const [pageUrl, setPageUrl] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("ページを開いて「翻訳を開始」を押してください。");
+  const [status, setStatus] = useState(INITIAL_STATUS);
   const [error, setError] = useState("");
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -102,10 +108,24 @@ export function SidePanel() {
   const [view, setView] = useState<"translate" | "compose">("translate");
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
-  /** Page-click mode: clicking translated text on the page selects its card. */
-  const [pagePick, setPagePick] = useState(false);
-  /** Selection translation: selecting text on the page shows its translation in a tooltip. */
-  const [selectionMode, setSelectionMode] = useState(false);
+  /**
+   * Page-click mode (clicking translated text on the page selects its card) or selection
+   * translation (selecting text shows its translation in a tooltip). Both react to selecting
+   * text, so turning one on turns the other off in the same step.
+   */
+  const [pickMode, setPickMode] = useState<PickMode>("off");
+  const pagePick = pickMode === "page-click";
+  const selectionMode = pickMode === "selection";
+  const setPagePick = (value: boolean | ((on: boolean) => boolean)) => setPickMode((current) => {
+    const on = typeof value === "function" ? value(current === "page-click") : value;
+    return on ? "page-click" : current === "page-click" ? "off" : current;
+  });
+  const setSelectionMode = (value: boolean | ((on: boolean) => boolean)) => setPickMode((current) => {
+    const on = typeof value === "function" ? value(current === "selection") : value;
+    return on ? "selection" : current === "selection" ? "off" : current;
+  });
+  /** Tab whose page the results on screen belong to; the panel watches it for navigation. */
+  const [watchTabId, setWatchTabId] = useState<number | null>(null);
   /** Set once the stored settings are read, so nothing acts on the defaults in the meantime. */
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   /** What the last run took from the translation cache, shown under the status. */
@@ -229,9 +249,45 @@ export function SidePanel() {
   // even when it left no visible cards: that is when adding one by hand matters most.
   const scanned = !busy && pageUrl !== "";
 
-  // Both modes react to selecting text on the page, so only one can be on.
-  useEffect(() => { if (pagePick) setSelectionMode(false); }, [pagePick]);
-  useEffect(() => { if (selectionMode) setPagePick(false); }, [selectionMode]);
+  const resetToStartRef = useRef<() => void>(() => undefined);
+  // Ports the modes hold to the page, so closing the panel can end them at once.
+  const modePorts = useRef(new Set<chrome.runtime.Port>());
+  useEffect(() => {
+    // The panel is going away (closed, or its page unloaded): end both modes. The page ends
+    // them too when the ports drop; this makes sure of it, and of the tooltip.
+    const onHide = () => {
+      for (const port of modePorts.current) port.disconnect();
+      modePorts.current.clear();
+      setPickMode("off");
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => window.removeEventListener("pagehide", onHide);
+  }, []);
+
+  // Watch the page the results belong to. It reports a navigation inside the page, and a full
+  // navigation, a reload or a closed tab drops the port; either way the results are of a page
+  // that is gone, so the panel returns to its start screen.
+  useEffect(() => {
+    if (watchTabId === null) return;
+    let port: chrome.runtime.Port | null = null;
+    let cancelled = false;
+    try {
+      port = chrome.tabs.connect(watchTabId, { name: PAGE_WATCH_PORT });
+      port.onMessage.addListener((message: PageWatchEvent) => {
+        if (message.type === "navigated") resetToStartRef.current();
+      });
+      port.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError;
+        if (!cancelled) resetToStartRef.current();
+      });
+    } catch {
+      // No content script in that tab: there is nothing to watch.
+    }
+    return () => {
+      cancelled = true;
+      port?.disconnect();
+    };
+  }, [watchTabId]);
 
   // While selection translation is on, hold a port to the tab: it reports each selection, and the
   // translation goes back to the page's tooltip. Closing the panel drops the port and ends the mode.
@@ -244,14 +300,17 @@ export function SidePanel() {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       if (cancelled || tab?.id === undefined) return;
       port = chrome.tabs.connect(tab.id, { name: SELECTION_PORT });
+      const held = port;
+      modePorts.current.add(held);
       port.onMessage.addListener((message: SelectionEvent) => {
         if (message.type === "selected") translateSelectedRef.current(message.id, message.text);
       });
       port.onDisconnect.addListener(() => {
         void chrome.runtime.lastError;
+        modePorts.current.delete(held);
         if (cancelled) return;
         setSelectionMode(false);
-        setError("ページとの接続が切れたため、選択範囲翻訳を終了しました。");
+        reportDroppedPort("ページとの接続が切れたため、選択範囲翻訳を終了しました。");
       });
     })().catch((caught: unknown) => {
       setSelectionMode(false);
@@ -259,6 +318,7 @@ export function SidePanel() {
     });
     return () => {
       cancelled = true;
+      if (port) modePorts.current.delete(port);
       port?.disconnect();
     };
   }, [selectionMode]);
@@ -275,15 +335,18 @@ export function SidePanel() {
       const zoom = await chrome.tabs.getZoom(tab.id).catch(() => 1);
       if (cancelled) return;
       port = chrome.tabs.connect(tab.id, { name: PAGE_PICK_PORT });
+      const held = port;
+      modePorts.current.add(held);
       port.onMessage.addListener((message: PagePickEvent) => {
         if (message.type === "exit") setPagePick(false);
         else if (message.type === "picked") void revealPicked(message.segmentId);
         else if (message.type === "added") void addFromPage(message.segment, message.followingIds);
       });
       port.onDisconnect.addListener(() => {
+        modePorts.current.delete(held);
         if (cancelled) return;
         setPagePick(false);
-        setError("ページとの接続が切れたため、ページクリックを終了しました。");
+        reportDroppedPort("ページとの接続が切れたため、ページクリックを終了しました。");
       });
       port.postMessage({ type: "targets", targets: pickable, zoom } satisfies PagePickRequest);
     })().catch((caught: unknown) => {
@@ -292,6 +355,7 @@ export function SidePanel() {
     });
     return () => {
       cancelled = true;
+      if (port) modePorts.current.delete(port);
       port?.disconnect();
     };
     // pickableKey captures every change to the targets.
@@ -398,6 +462,36 @@ export function SidePanel() {
     consentResolver.current = null;
   }
 
+  /**
+   * Back to the start screen: the page these results belong to was left (navigated away, reloaded,
+   * changed its route or closed). Results still on their way from that page are dropped.
+   */
+  function resetToStart(): void {
+    generationRef.current += 1;
+    entriesRef.current = [];
+    setEntries([]);
+    setBusy(false);
+    setError("");
+    setStatus(INITIAL_STATUS);
+    setPageTitle("");
+    setPageUrl("");
+    setSelectedId(null);
+    setDroppedCount(0);
+    setCacheNote(null);
+    setPickMode("off");
+    setWatchTabId(null);
+  }
+  resetToStartRef.current = resetToStart;
+
+  /**
+   * A mode's port dropped: say so, unless the page just went away (then the panel is back at its
+   * start screen and there is nothing to explain).
+   */
+  function reportDroppedPort(message: string): void {
+    const generation = generationRef.current;
+    window.setTimeout(() => { if (generation === generationRef.current) setError(message); }, 250);
+  }
+
   /** Resolves true once the page was scanned, so page-click mode can start. */
   async function startTranslation(fresh = false): Promise<boolean> {
     return await ensureConsent() ? runTranslation(fresh) : false;
@@ -455,6 +549,8 @@ export function SidePanel() {
   /** The shortcut: translate whatever is selected on the page right now, once. */
   async function translateCurrentSelection(): Promise<void> {
     try {
+      // While the panel is connected, closing it also removes the tooltip it leaves in the page.
+      await holdPresence();
       const read = await sendMessage<ReadSelectionResult>({ type: "READ_SELECTION" });
       if (read.empty) return;
       if (!(await ensureConsent())) {
@@ -492,6 +588,8 @@ export function SidePanel() {
     generationRef.current += 1;
     const generation = generationRef.current;
     let scannedPage = false;
+    // True once a newer run started or the panel went back to its start screen: this run's results are not wanted.
+    const stale = () => generation !== generationRef.current;
     setBusy(true);
     setError("");
     setEntries([]);
@@ -503,6 +601,10 @@ export function SidePanel() {
     try {
       await sendMessage({ type: "RESTORE_PAGE" }).catch(() => undefined);
       const page = await sendMessage<ScanResult>({ type: "SCAN_ACTIVE_TAB" });
+      if (stale()) return false;
+      const [scannedTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+      if (stale()) return false;
+      setWatchTabId(scannedTab?.id ?? null);
       setPageTitle(page.title);
       setPageUrl(new URL(page.url).hostname);
       scannedPage = true;
@@ -520,6 +622,7 @@ export function SidePanel() {
       const hashes = useCache ? await Promise.all(candidates.map((segment) => hashText(segment.sourceText))) : [];
       const cacheKey = pageCacheKey(page.url, settings.targetLanguage, settings.useJev);
       const store = useCache ? await loadCacheStore() : emptyCache();
+      if (stale()) return false;
       const cached = useCache && !fresh ? findPage(store, cacheKey, settings.cacheTtlHours, Date.now()) : null;
       const unchanged = cached !== null && isUnchanged(cached, hashes);
 
@@ -540,6 +643,7 @@ export function SidePanel() {
           pageTitle: page.title,
           mainContentDetected: page.mainContentDetected,
         }));
+        if (stale()) return false;
       } else {
         decisions = candidates.map((segment) => ({ id: segment.id, decision: "translate" as const, confidence: 1 }));
       }
@@ -572,11 +676,13 @@ export function SidePanel() {
         setStatus(`${toTranslate.length}件を翻訳しています…`);
         try {
           const translated = await requestTranslations(toTranslate);
+          if (stale()) return false;
           for (const result of translated) {
             const entry = next.find((item) => item.id === result.id);
             if (entry) Object.assign(entry, result, { state: "translated", reason: undefined });
           }
         } catch (caught) {
+          if (stale()) return false;
           const message = errorMessage(caught);
           setError(message);
           for (const entry of toTranslate) {
@@ -586,9 +692,10 @@ export function SidePanel() {
         }
       }
 
-      if (useCache && generation === generationRef.current) {
+      if (useCache && !stale()) {
         await saveToCache(cacheKey, cached, unchanged, hashes, candidates, byId, next).catch(() => undefined);
       }
+      if (stale()) return false;
 
       const finalEntries = [...next];
       setEntries(finalEntries);
@@ -597,12 +704,14 @@ export function SidePanel() {
       setStatus(shown > 0 ? `本文の${shown}件を表示しています。${mode}` : `翻訳が必要な本文が見つかりませんでした。${mode}`);
       if (settings.displayMode === "inline") await applyInline(finalEntries);
     } catch (caught) {
-      setError(errorMessage(caught));
-      setStatus("処理を完了できませんでした。");
+      if (!stale()) {
+        setError(errorMessage(caught));
+        setStatus("処理を完了できませんでした。");
+      }
     } finally {
-      setBusy(false);
+      if (!stale()) setBusy(false);
     }
-    return scannedPage && generation === generationRef.current;
+    return scannedPage && !stale();
   }
 
   async function loadCacheStore(): Promise<CacheStore> {
@@ -668,14 +777,18 @@ export function SidePanel() {
   }
 
   async function translateOne(entry: TranslationEntry): Promise<void> {
+    const generation = generationRef.current;
     setError("");
     setEntries((current) => current.map((item) => item.id === entry.id ? { ...item, state: "error", reason: "翻訳中…" } : item));
     try {
       const [translated] = await requestTranslations([entry]);
+      // The page was left (or translated again) meanwhile: this card no longer exists.
+      if (generation !== generationRef.current) return;
       const next = entries.map((item) => item.id === entry.id ? translated : item);
       setEntries(next);
       if (settings.displayMode === "inline") await applyInline(next);
     } catch (caught) {
+      if (generation !== generationRef.current) return;
       setError(errorMessage(caught));
       setEntries((current) => current.map((item) => item.id === entry.id ? { ...item, state: "review", reason: "翻訳に失敗しました。" } : item));
     }

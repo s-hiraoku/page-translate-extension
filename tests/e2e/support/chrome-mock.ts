@@ -90,6 +90,12 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         w.__emitSelection = (message: unknown) => listeners.forEach((listener) => listener(message));
         w.__dropSelectionPort = () => disconnectListeners.forEach((listener) => listener());
       }
+      if (name === "page-watch") {
+        // The page reports that the reader navigated away; a full navigation just drops the port.
+        w.__watching = ((w.__watching as number) ?? 0) + 1;
+        w.__emitWatch = (message: unknown) => listeners.forEach((listener) => listener(message));
+        w.__dropWatch = () => disconnectListeners.forEach((listener) => listener());
+      }
       return portObject;
     };
 
