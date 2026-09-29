@@ -6,7 +6,7 @@ export default defineManifest({
   version: "1.6.2",
   description: "Translate English and Japanese web pages with Jev and DeepL, with translations linked to their source.",
   minimum_chrome_version: "116",
-  permissions: ["sidePanel", "storage"],
+  permissions: ["contextMenus", "sidePanel", "storage"],
   icons: {
     16: "icons/icon16.png",
     32: "icons/icon32.png",

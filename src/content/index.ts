@@ -1,4 +1,4 @@
-import type { CandidateSegment, FocusAnchor, PagePickEvent, PageWatchEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionEvent, TranslationEntry } from "../shared/types";
+import type { CandidateSegment, FocusAnchor, PagePickEvent, PageWatchEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionAutoChanged, SelectionEvent, TranslationEntry } from "../shared/types";
 import { PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_PRESENCE_PORT, SELECTION_PORT } from "../shared/types";
 import { normalizePageUrl } from "../shared/page-url";
 import { readCurrentSelection, type CurrentSelection } from "./selection";
@@ -93,6 +93,11 @@ function handlePanelMessage(message: { type: string }, sendResponse: (response: 
       return;
     }
     sendResponse({ id: showSelectionTooltip(selected), text: selected.text } satisfies ReadSelectionResult);
+    return;
+  }
+  if (type === "SELECTION_AUTO_CHANGED") {
+    setSelectionAuto((message as unknown as SelectionAutoChanged).enabled);
+    sendResponse({ enabled: selectionAuto !== null });
     return;
   }
   if (type === "SELECTION_RESULT") {
@@ -899,15 +904,16 @@ chrome.runtime.onConnect.addListener((port) => {
   startSelectionMode(port);
 });
 
-/** While the panel holds the selection port open, selecting text asks the panel to translate it. */
-function startSelectionMode(port: chrome.runtime.Port): void {
-  stopSelectionMode();
+/**
+ * Calls `onSelected` shortly after the reader selects text with the mouse or the keyboard.
+ * Returns what removes the listeners. A selection inside the tooltip itself is ignored.
+ */
+function watchSelection(onSelected: (selected: CurrentSelection) => void): () => void {
   let timer = 0;
   const check = () => {
     const selected = readCurrentSelection();
     if (!selected || selectionUi?.text === selected.text) return;
-    const id = showSelectionTooltip(selected);
-    port.postMessage({ type: "selected", id, text: selected.text } satisfies SelectionEvent);
+    onSelected(selected);
   };
   const schedule = (event: Event) => {
     if (selectionUi && event.composedPath().includes(selectionUi.tooltip.host)) return;
@@ -920,18 +926,53 @@ function startSelectionMode(port: chrome.runtime.Port): void {
   };
   window.addEventListener("mouseup", schedule, true);
   window.addEventListener("keyup", onKeyUp, true);
+  return () => {
+    window.clearTimeout(timer);
+    window.removeEventListener("mouseup", schedule, true);
+    window.removeEventListener("keyup", onKeyUp, true);
+  };
+}
+
+/** While the panel holds the selection port open, selecting text asks the panel to translate it. */
+function startSelectionMode(port: chrome.runtime.Port): void {
+  stopSelectionMode();
+  const stop = watchSelection((selected) => {
+    const id = showSelectionTooltip(selected);
+    port.postMessage({ type: "selected", id, text: selected.text } satisfies SelectionEvent);
+  });
   port.onDisconnect.addListener(() => {
     if (selectionMode?.port === port) stopSelectionMode();
   });
-  selectionMode = {
-    port,
-    dispose: () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("mouseup", schedule, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-    },
-  };
+  selectionMode = { port, dispose: stop };
 }
+
+/**
+ * "Translate as I select", from the settings or the context menu: works with the panel closed. The
+ * service worker translates and the answer comes back as SELECTION_RESULT. It stays out of the way of
+ * the panel's own selection mode and of page-click mode, which handle selections themselves.
+ */
+let selectionAuto: { dispose: () => void } | null = null;
+
+function setSelectionAuto(enabled: boolean): void {
+  if (enabled === (selectionAuto !== null)) return;
+  if (!enabled) {
+    selectionAuto?.dispose();
+    selectionAuto = null;
+    if (!selectionMode) closeSelectionTooltip();
+    return;
+  }
+  const stop = watchSelection((selected) => {
+    if (selectionMode || pagePick) return;
+    const id = showSelectionTooltip(selected);
+    chrome.runtime.sendMessage({ type: "SELECTION_FROM_PAGE", id, text: selected.text }).catch(() => undefined);
+  });
+  selectionAuto = { dispose: stop };
+}
+
+// A page opened while the setting is on starts translating selections right away.
+chrome.runtime.sendMessage({ type: "GET_SELECTION_AUTO" }).then((reply: { enabled?: boolean } | undefined) => {
+  setSelectionAuto(reply?.enabled === true);
+}).catch(() => undefined);
 
 function stopSelectionMode(): void {
   selectionMode?.dispose();

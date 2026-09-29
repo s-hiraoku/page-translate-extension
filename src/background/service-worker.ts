@@ -1,8 +1,11 @@
 import type {
   ExtensionMessage,
+  ReadSelectionResult,
   RuntimeError,
+  SelectionAutoChanged,
 } from "../shared/types";
-import { DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type PanelCommandRequest } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type ExtensionSettings, type PanelCommandRequest } from "../shared/types";
+import { CONSENT_NOTE, createSelectionTranslator, type SelectionOutcome } from "./selection";
 import { classifyCandidates, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
@@ -15,14 +18,115 @@ chrome.runtime.onInstalled.addListener(() => {
     }
     return undefined;
   });
+  void createMenus();
 });
 
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+// Translating a selection needs neither the side panel nor its page connection: the page reports
+// the selection (or the shortcut / context menu asks for it) and the tooltip shows the answer.
+const translateSelection = createSelectionTranslator({
+  settings: readSettings,
+  hasConsent,
+  translate: translateText,
+});
+
+/** Whether the data-use consent is on record, as last seen; null until read. Lets a shortcut open the panel before any await. */
+let consentKnown: boolean | null = null;
+
+async function hasConsent(): Promise<boolean> {
+  await storageReady;
+  const stored = await chrome.storage.local.get(DATA_USE_CONSENT_KEY);
+  consentKnown = stored[DATA_USE_CONSENT_KEY] === DATA_USE_CONSENT_VERSION;
+  return consentKnown;
+}
+
+async function readSettings(): Promise<ExtensionSettings> {
+  await storageReady;
+  const stored = await chrome.storage.local.get(SETTINGS_KEY);
+  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) };
+}
+
+async function sendToTab<T = unknown>(tabId: number, message: object): Promise<T> {
+  return await chrome.tabs.sendMessage(tabId, message) as T;
+}
+
+async function deliverSelection(tabId: number, id: number, text: string): Promise<void> {
+  const outcome: SelectionOutcome = await translateSelection(text);
+  await sendToTab(tabId, { type: "SELECTION_RESULT", id, ...outcome }).catch(() => undefined);
+}
+
+/**
+ * The shortcut and the context menu: translate what is selected in this tab now, once, with no
+ * panel. Without the reader's consent nothing is sent: the panel is opened to ask (Chrome allows
+ * that only right after the key press, so it may refuse, and then the tooltip says what to do).
+ */
+async function translateSelectionOnce(tabId: number, windowId: number | undefined): Promise<void> {
+  const read = await sendToTab<ReadSelectionResult>(tabId, { type: "READ_SELECTION" }).catch(() => null);
+  if (!read || read.empty) return;
+  if (await hasConsent()) {
+    await deliverSelection(tabId, read.id, read.text);
+    return;
+  }
+  const opened = windowId !== undefined && await openPanelFor("translate-selection", windowId);
+  if (!opened) await sendToTab(tabId, { type: "SELECTION_RESULT", id: read.id, note: CONSENT_NOTE }).catch(() => undefined);
+}
+
+/** Opens the side panel in this window and leaves the command for it. Resolves false if Chrome refuses. */
+async function openPanelFor(command: PanelCommandRequest["command"], windowId: number): Promise<boolean> {
+  // Open before any await: the shortcut counts as a user gesture only until then.
+  const opened = await chrome.sidePanel.open({ windowId }).then(() => true, () => false);
+  if (!opened) return false;
+  const request: PanelCommandRequest = { id: crypto.randomUUID(), command, windowId, at: Date.now() };
+  await storageReady.then(() => chrome.storage.session.set({ [PANEL_COMMAND_KEY]: request }));
+  return true;
+}
+
+const MENU_TRANSLATE = "translate-selection";
+const MENU_AUTO = "selection-auto";
+
+async function createMenus(): Promise<void> {
+  const settings = await readSettings();
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({ id: MENU_TRANSLATE, title: "選択範囲を翻訳", contexts: ["selection"] });
+  chrome.contextMenus.create({ id: MENU_AUTO, title: "選択したら自動で翻訳", type: "checkbox", checked: settings.selectionAutoTranslate, contexts: ["page", "selection"] });
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === MENU_TRANSLATE && tab?.id !== undefined) {
+    void translateSelectionOnce(tab.id, tab.windowId);
+  } else if (info.menuItemId === MENU_AUTO) {
+    void readSettings().then((settings) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, selectionAutoTranslate: info.checked === true } }));
+  }
+});
+
+// Settings or consent changed (from the panel or the menu): keep the menu and every open page in step.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  const consent = changes[DATA_USE_CONSENT_KEY];
+  if (consent) consentKnown = consent.newValue === DATA_USE_CONSENT_VERSION;
+  const settings = changes[SETTINGS_KEY];
+  if (!settings) return;
+  const before = (settings.oldValue as Partial<ExtensionSettings> | undefined)?.selectionAutoTranslate === true;
+  const after = (settings.newValue as Partial<ExtensionSettings> | undefined)?.selectionAutoTranslate === true;
+  if (before === after) return;
+  void chrome.contextMenus.update(MENU_AUTO, { checked: after }).catch(() => undefined);
+  void chrome.tabs.query({}).then((tabs) => {
+    for (const tab of tabs) {
+      if (tab.id !== undefined) void sendToTab(tab.id, { type: "SELECTION_AUTO_CHANGED", enabled: after } satisfies SelectionAutoChanged).catch(() => undefined);
+    }
+  });
+});
 
 // Keyboard shortcuts: open the side panel, then leave the command for it in session storage.
 chrome.commands.onCommand.addListener((command, tab) => {
   if (!isPanelCommand(command) || tab?.windowId === undefined) return;
   const windowId = tab.windowId;
+  // Selection translation runs without the panel, unless consent is missing and the panel has to ask.
+  if (command === "translate-selection" && tab.id !== undefined && consentKnown !== false) {
+    void translateSelectionOnce(tab.id, windowId);
+    return;
+  }
   // Open before any await: the shortcut counts as a user gesture only until then.
   chrome.sidePanel.open({ windowId }).catch(() => undefined);
   const request: PanelCommandRequest = { id: crypto.randomUUID(), command, windowId, at: Date.now() };
@@ -87,6 +191,15 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     case "SELECTION_RESULT":
       requireExtensionPage(sender);
       return sendToActiveTab(message);
+    // A page reports a selection while "translate as I select" is on. Only content scripts send this, and only then.
+    case "SELECTION_FROM_PAGE": {
+      const tabId = sender.tab?.id;
+      if (tabId === undefined || sender.id !== chrome.runtime.id || !(await readSettings()).selectionAutoTranslate) return undefined;
+      await deliverSelection(tabId, message.id, message.text);
+      return { ok: true };
+    }
+    case "GET_SELECTION_AUTO":
+      return { enabled: sender.tab !== undefined && (await readSettings()).selectionAutoTranslate };
     case "OPEN_SIDE_PANEL":
       return undefined;
   }

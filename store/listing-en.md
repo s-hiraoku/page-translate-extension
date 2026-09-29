@@ -27,7 +27,7 @@ Page Translate extracts candidate text from the current page. TypeSafe Jev selec
 - Japanese to English: turn what you want to say into English, and translate it back to confirm it says what you meant
 - Translation cache: reopen a page within a few hours and its saved translation is reused (changed passages are translated again)
 - DeepL server detected from your key (free or paid plan can also be chosen manually)
-- Selection translation: translate just the text you select on a page, shown in a tooltip right next to it
+- Selection translation: translate just the text you select on a page, shown in a tooltip right next to it (it also works with the side panel closed: by shortcut, right-click, or “Translate as I select”)
 - Keyboard shortcuts: Alt+Shift+Y translates the page, Alt+Shift+K toggles page-click mode, Alt+Shift+S translates the selected text (Control+Shift on Mac; customizable)
 
 ### API keys
@@ -43,6 +43,7 @@ Check the terms of TypeSafe Jev and your chosen DeepL API plan before sending te
 ### Permissions
 
 - Access to all websites: used to extract text from the page you choose to translate and apply the display mode you select.
+- `contextMenus`: adds “Translate selection” and “Translate as I select” to the page's right-click menu.
 - `sidePanel`: displays translations and settings in the Chrome side panel.
 - `storage`: saves display settings and data-use consent, and holds API keys only for the Chrome session. It also keeps translated pages on this device for the time you choose (3 hours by default) so a page you reopen is not translated again; nothing is sent anywhere, and it can be turned off or deleted in Settings.
 - Connections to TypeSafe Jev and DeepL: used to classify candidate text and translate selected text.

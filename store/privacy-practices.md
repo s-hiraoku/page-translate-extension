@@ -23,7 +23,7 @@ All handled data is used only to provide the user-facing translation feature (in
 - API keys: Chrome `storage.session` (in-memory for the extension's current session); cleared on browser restart, extension disable, reload, or update. The user can clear them in Settings.
 - Settings and consent state: Chrome `storage.local`, not Chrome Sync.
 - Translation cache: Chrome `storage.local` on the user's device only (never sent anywhere, not Chrome Sync). Per translated page it keeps the page address without fragment and tracking parameters, short hashes of the translated passages, Jev's verdicts and the translations, for the lifetime the user chooses (1, 3 or 24 hours; 3 by default), up to 30 pages. Expired entries are deleted automatically; turning the cache off in Settings deletes it; "Delete cache" clears it on demand. Removed with the extension.
-- Selection translation: the selected text is sent to DeepL only (not Jev). Its translation is kept in the side panel's memory for the panel's lifetime (latest 50) and never persisted.
+- Selection translation: the selected text is sent to DeepL only (not Jev). Its translation is kept in the side panel's memory for the panel's lifetime (latest 50) and never persisted. With "Translate as I select" on (off by default; Settings or the right-click menu), selections are sent to DeepL the same way while the panel is closed, and their translations are kept only in the service worker's memory (latest 50), never persisted.
 - Page text and writing check input outside the cache: held in panel/page memory only; not persisted by the extension.
 
 ## Privacy policy and limited use certification
