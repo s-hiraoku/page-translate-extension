@@ -14,6 +14,8 @@ export interface MockOptions {
   settings?: Record<string, unknown>;
   /** Assigned keyboard shortcuts by command name; "" means unassigned. */
   shortcuts?: Record<string, string>;
+  /** Extra chrome.storage.local values present when the panel opens. */
+  stored?: Record<string, unknown>;
 }
 
 /** Window the mocked side panel lives in. */
@@ -29,13 +31,14 @@ export const SEGMENTS = [
 ].map((segment) => ({ sourceHtml: segment.sourceText, linkDensity: 0, isArticleTitle: false, ...segment }));
 
 export async function installChromeMock(page: Page, options: MockOptions = {}): Promise<void> {
-  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId }) => {
+  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId, stored }) => {
     type Message = { type: string; [key: string]: unknown };
     type Handler = (message: Message) => unknown;
     const w = window as unknown as Record<string, unknown>;
     const store: Record<string, unknown> = {};
     if (consent != null) store.pageTranslateDataUseConsentVersion = consent;
     if (settings) store.pageTranslateSettings = settings;
+    if (stored) Object.assign(store, stored);
     const sent: Message[] = [];
     const overrides = new Map<string, Handler>();
     w.__sent = sent;
@@ -130,7 +133,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         },
       },
     };
-  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID });
+  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null });
 }
 
 /** Message types the panel has sent so far, in order. */

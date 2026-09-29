@@ -16,13 +16,14 @@ Translate between English and Japanese: text from the page the user chooses (Typ
 
 ## Use and sharing
 
-All handled data is used only to provide the user-facing translation feature. Page text, page title, location labels, target language, and authentication requests are sent directly from the extension to TypeSafe Jev and DeepL over HTTPS. The extension developer operates no relay service and receives no page content, credentials, results, URLs, analytics, or telemetry. No advertising, sale, profiling, or unrelated use.
+All handled data is used only to provide the user-facing translation feature (including reusing recent translations of the same page). Page text, page title, location labels, target language, and authentication requests are sent directly from the extension to TypeSafe Jev and DeepL over HTTPS. The extension developer operates no relay service and receives no page content, credentials, results, URLs, analytics, or telemetry. No advertising, sale, profiling, or unrelated use.
 
 ## Storage and retention
 
 - API keys: Chrome `storage.session` (in-memory for the extension's current session); cleared on browser restart, extension disable, reload, or update. The user can clear them in Settings.
 - Settings and consent state: Chrome `storage.local`, not Chrome Sync.
-- Page text, writing check input and translated text: held in panel/page memory only; not persisted by the extension.
+- Translation cache: Chrome `storage.local` on the user's device only (never sent anywhere, not Chrome Sync). Per translated page it keeps the page address without fragment and tracking parameters, short hashes of the translated passages, Jev's verdicts and the translations, for the lifetime the user chooses (1, 3 or 24 hours; 3 by default), up to 30 pages. Expired entries are deleted automatically; turning the cache off in Settings deletes it; "Delete cache" clears it on demand. Removed with the extension.
+- Page text and writing check input outside the cache: held in panel/page memory only; not persisted by the extension.
 
 ## Privacy policy and limited use certification
 

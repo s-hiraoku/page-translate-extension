@@ -25,7 +25,7 @@
   <main>
     <p class="eyebrow">PAGE TRANSLATE</p>
     <h1>プライバシーポリシー</h1>
-    <p class="updated">最終更新日：2026年9月27日</p>
+    <p class="updated">最終更新日：2026年9月29日</p>
 
     <p>Page Translateは、利用者が翻訳を開始したときに、表示中のページから文章を抽出して英語と日本語の翻訳を行うChrome拡張機能です。このポリシーでは、拡張機能が扱う情報、送信先、保存期間を説明します。</p>
 
@@ -35,7 +35,7 @@
       <li><strong>英作文チェックの入力：</strong>利用者が英作文に入力した英文と日本語を、訳し戻し、お手本の英訳、日本語からの英訳、DeepL Writeによる添削に使います。文脈として使う設定のときは、開いているページのタイトルと本文も使います。</li>
       <li><strong>APIキー：</strong>利用者が設定画面に入力したTypeSafe JevとDeepLのAPIキーを、それぞれのサービスへの認証に使います。</li>
       <li><strong>設定：</strong>翻訳先言語、表示モード、DeepLの接続先、Jevを使うかどうか、英作文チェックの設定、データ送信への同意を拡張機能内に保存します。</li>
-      <li><strong>翻訳結果：</strong>サイドパネル表示と、利用者が選んだ場合のページ内表示に使います。</li>
+      <li><strong>翻訳結果：</strong>サイドパネル表示と、利用者が選んだ場合のページ内表示に使います。あわせて、同じページを開き直したときに再利用するため、翻訳したページの結果を利用者の端末に一時保存します（下記「保存と削除」）。</li>
     </ul>
 
     <h2>送信先と共有</h2>
@@ -50,8 +50,9 @@
     <ul>
       <li>APIキーはChromeのセッションストレージにだけ保存します。Chromeの再起動、拡張機能の無効化・再読み込み・更新で消去されます。設定画面の「保存中のAPIキーを削除」からも消去できます。</li>
       <li>翻訳設定と同意状態はこのChromeプロファイルの拡張機能ストレージに保存され、Chrome Syncには送信しません。</li>
-      <li>ページ文章と翻訳結果は拡張機能の永続ストレージには保存しません。サイドパネル内の結果はパネルを閉じると失われます。ページ内モードでページに適用した訳文は、原文に戻すかページを再読み込みするまで、そのページ上に表示されます。</li>
-      <li>拡張機能を削除すると、拡張機能が保存した設定と同意状態も削除されます。</li>
+      <li>翻訳キャッシュ：翻訳したページの結果（ページのアドレスから#以降と広告用のパラメータを除いたもの、翻訳した文章の要約値、Jevの判定、翻訳文）を、このChromeプロファイルの拡張機能ストレージに、設定した時間（1・3・24時間から選択、初期値は3時間）だけ保存し、同じページを開いたときに再利用します。ページの本文が変わっていた場合は翻訳し直します。保存先はこの端末の拡張機能の中だけで、外部へは送信せず、開発者も受信しません。期限を過ぎたものは自動で削除し、最大30ページまでです。設定画面の「翻訳のキャッシュ」で保存しない設定にすると保存済みの内容も削除され、「キャッシュを削除」からいつでも削除できます。</li>
+      <li>キャッシュ以外のページ文章と、英作文チェックの入力は、拡張機能の永続ストレージには保存しません。サイドパネル内の結果はパネルを閉じると失われます。ページ内モードでページに適用した訳文は、原文に戻すかページを再読み込みするまで、そのページ上に表示されます。</li>
+      <li>拡張機能を削除すると、拡張機能が保存した設定、同意状態、翻訳キャッシュも削除されます。</li>
     </ul>
 
     <h2>利用者による操作</h2>
@@ -67,7 +68,7 @@
 
     <p class="eyebrow">ENGLISH</p>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: September 27, 2026</p>
+    <p class="updated">Last updated: September 29, 2026</p>
     <p>Page Translate is a Chrome extension that extracts text from the page you are viewing when you start a translation. It translates between English and Japanese. This policy explains what the extension handles, where information is sent, and how long it is kept.</p>
 
     <h2>Information and purpose</h2>
@@ -76,7 +77,7 @@
       <li><strong>Writing check input:</strong> English and Japanese text you enter in the writing check is used for back-translation, a model translation, and DeepL Write corrections. If you choose to use the open page as context, its title and main text are used too.</li>
       <li><strong>API keys:</strong> TypeSafe Jev and DeepL keys that you enter are used to authenticate requests to those services.</li>
       <li><strong>Settings:</strong> The target language, display mode, DeepL server choice, whether Jev is used, writing check options, and your data-sharing consent are stored by the extension.</li>
-      <li><strong>Translations:</strong> Results are used in the side panel and, if you choose, on the page itself.</li>
+      <li><strong>Translations:</strong> Results are used in the side panel and, if you choose, on the page itself. So that a page you open again can reuse them, translated results are also kept temporarily on your device (see “Storage and deletion”).</li>
     </ul>
 
     <h2>Recipients and sharing</h2>
@@ -91,8 +92,9 @@
     <ul>
       <li>API keys are kept only in Chrome session storage. They are cleared when Chrome restarts or when the extension is disabled, reloaded, or updated. You can also remove them from Settings.</li>
       <li>Translation settings and consent state are stored in this Chrome profile and are not sent through Chrome Sync.</li>
-      <li>Page text and translations are not written to persistent extension storage. Side panel results disappear when the panel closes. Translations applied in page mode remain in that page until you restore the original text or reload the page.</li>
-      <li>Removing the extension deletes its stored settings and consent state.</li>
+      <li>Translation cache: results for pages you translated (the page address without its fragment and tracking parameters, short fingerprints of the translated passages, Jev's verdicts, and the translations) are stored in this Chrome profile's extension storage for the time you choose (1, 3 or 24 hours; 3 by default) and reused when you open the same page again. Passages that changed on the page are translated again. The cache stays inside the extension on this device: it is not sent anywhere and the developer does not receive it. Expired entries are deleted automatically, and at most 30 pages are kept. Choosing not to save in Settings (“Translation cache”) also deletes what was saved, and “Delete cache” removes it at any time.</li>
+      <li>Apart from the cache, page text and writing check input are not written to persistent extension storage. Side panel results disappear when the panel closes. Translations applied in page mode remain in that page until you restore the original text or reload the page.</li>
+      <li>Removing the extension deletes its stored settings, consent state and translation cache.</li>
     </ul>
 
     <h2>Your choice</h2>

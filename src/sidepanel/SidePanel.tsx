@@ -21,6 +21,22 @@ import type {
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
+import {
+  CACHE_KEY,
+  CACHE_TTL_HOURS,
+  buildPage,
+  describeCache,
+  emptyCache,
+  findPage,
+  formatAge,
+  hashText,
+  isUnchanged,
+  pageCacheKey,
+  prune,
+  readCache,
+  type CacheStore,
+  type CachedPage,
+} from "./cache";
 import { isInTargetLanguage, isMainProse } from "./rules";
 import { applyTheme, cachedTheme } from "./theme";
 import { createScreenTopTracker } from "../shared/screen-top";
@@ -84,6 +100,12 @@ export function SidePanel() {
   const [droppedCount, setDroppedCount] = useState(0);
   /** Page-click mode: clicking translated text on the page selects its card. */
   const [pagePick, setPagePick] = useState(false);
+  /** Set once the stored settings are read, so nothing acts on the defaults in the meantime. */
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  /** What the last run took from the translation cache, shown under the status. */
+  const [cacheNote, setCacheNote] = useState<{ savedAt: number; reused: number; total: number; unchanged: boolean } | null>(null);
+  /** Pages and size of the translation cache, shown in Settings. */
+  const [cacheInfo, setCacheInfo] = useState({ pages: 0, chars: 0 });
   /** Current keyboard shortcuts by command name; "" when the reader has none assigned. */
   const [shortcuts, setShortcuts] = useState<Partial<Record<PanelCommand, string>>>({});
 
@@ -121,8 +143,24 @@ export function SidePanel() {
       if (stored[SETTINGS_KEY]) {
         setSettings({ ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings>) });
       }
-    });
+      setSettingsLoaded(true);
+    }, () => setSettingsLoaded(true));
   }, []);
+
+  // Expired translations go when the panel opens or the lifetime changes, and turning the cache off
+  // deletes it, so nothing stays on the device longer than the reader chose.
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    void (async () => {
+      if (!settings.cacheEnabled) {
+        await chrome.storage.local.remove(CACHE_KEY);
+        return;
+      }
+      const store = await loadCacheStore();
+      const pruned = prune(store, settings.cacheTtlHours, Date.now());
+      if (Object.keys(pruned.pages).length !== Object.keys(store.pages).length) await chrome.storage.local.set({ [CACHE_KEY]: pruned });
+    })().catch(() => undefined);
+  }, [settingsLoaded, settings.cacheEnabled, settings.cacheTtlHours]);
 
   // Shortcuts can change in chrome://extensions/shortcuts while the panel is open.
   useEffect(() => {
@@ -321,8 +359,8 @@ export function SidePanel() {
   }
 
   /** Resolves true once the page was scanned, so page-click mode can start. */
-  async function startTranslation(): Promise<boolean> {
-    return await ensureConsent() ? runTranslation() : false;
+  async function startTranslation(fresh = false): Promise<boolean> {
+    return await ensureConsent() ? runTranslation(fresh) : false;
   }
 
   commandRef.current = (command) => void runCommand(command);
@@ -350,7 +388,8 @@ export function SidePanel() {
     return [page.title, page.text].filter(Boolean).join("\n\n");
   }
 
-  async function runTranslation(): Promise<boolean> {
+  /** With `fresh`, the cache is ignored (but still updated): translate the page again from scratch. */
+  async function runTranslation(fresh = false): Promise<boolean> {
     generationRef.current += 1;
     const generation = generationRef.current;
     let scannedPage = false;
@@ -360,6 +399,7 @@ export function SidePanel() {
     setDroppedCount(0);
     setSelectedId(null);
     setPagePick(false);
+    setCacheNote(null);
     setStatus("ページの文章を調べています…");
     try {
       await sendMessage({ type: "RESTORE_PAGE" }).catch(() => undefined);
@@ -374,10 +414,25 @@ export function SidePanel() {
         return generation === generationRef.current;
       }
 
+      // A page seen a few hours ago: if its text is the same, take Jev's verdicts and the translations
+      // from the cache and call nothing. If it changed, Jev looks at the whole page again (its
+      // verdicts depend on the page as a whole), but translations of unchanged texts are still reused.
+      const useCache = settings.cacheEnabled;
+      const hashes = useCache ? await Promise.all(candidates.map((segment) => hashText(segment.sourceText))) : [];
+      const cacheKey = pageCacheKey(page.url, settings.targetLanguage, settings.useJev);
+      const store = useCache ? await loadCacheStore() : emptyCache();
+      const cached = useCache && !fresh ? findPage(store, cacheKey, settings.cacheTtlHours, Date.now()) : null;
+      const unchanged = cached !== null && isUnchanged(cached, hashes);
+
       // Without Jev, everything the local filters kept is translated. Comparing the two
       // settings on the same page shows exactly what Jev removes.
       let decisions: DecisionResult["decisions"];
-      if (settings.useJev) {
+      if (cached && unchanged) {
+        decisions = candidates.map((segment, index) => {
+          const known = cached.decisions[hashes[index] as string];
+          return { id: segment.id, decision: known?.d ?? "translate", confidence: known?.c ?? 1 };
+        });
+      } else if (settings.useJev) {
         setStatus(`本文の${candidates.length}件をJevが確認しています…`);
         ({ decisions } = await sendMessage<DecisionResult>({
           type: "CLASSIFY_CANDIDATES",
@@ -399,12 +454,25 @@ export function SidePanel() {
         const state: SegmentState = skipped ? "skipped" : "pending";
         return { ...segment, state, uncertain: decision?.decision !== "translate" && state === "pending" };
       });
-      setEntries(next);
+      const hashById = new Map(candidates.map((segment, index) => [segment.id, hashes[index] ?? ""]));
       const pending = next.filter((entry) => entry.state === "pending");
-      if (pending.length > 0) {
-        setStatus(`${pending.length}件を翻訳しています…`);
+      const toTranslate: TranslationEntry[] = [];
+      let reused = 0;
+      for (const entry of pending) {
+        const hit = cached?.translations[hashById.get(entry.id) ?? ""];
+        if (hit) {
+          Object.assign(entry, { translatedText: hit.t, translatedHtml: hit.h ?? hit.t, state: "translated", reason: undefined });
+          reused += 1;
+        } else {
+          toTranslate.push(entry);
+        }
+      }
+      setEntries(next);
+      if (cached && reused > 0) setCacheNote({ savedAt: cached.savedAt, reused, total: pending.length, unchanged });
+      if (toTranslate.length > 0) {
+        setStatus(`${toTranslate.length}件を翻訳しています…`);
         try {
-          const translated = await requestTranslations(pending);
+          const translated = await requestTranslations(toTranslate);
           for (const result of translated) {
             const entry = next.find((item) => item.id === result.id);
             if (entry) Object.assign(entry, result, { state: "translated", reason: undefined });
@@ -412,11 +480,15 @@ export function SidePanel() {
         } catch (caught) {
           const message = errorMessage(caught);
           setError(message);
-          for (const entry of pending) {
+          for (const entry of toTranslate) {
             const current = next.find((item) => item.id === entry.id);
             if (current) Object.assign(current, { state: "review", reason: "翻訳に失敗しました。再試行できます。" });
           }
         }
+      }
+
+      if (useCache && generation === generationRef.current) {
+        await saveToCache(cacheKey, cached, unchanged, hashes, candidates, byId, next).catch(() => undefined);
       }
 
       const finalEntries = [...next];
@@ -432,6 +504,55 @@ export function SidePanel() {
       setBusy(false);
     }
     return scannedPage && generation === generationRef.current;
+  }
+
+  async function loadCacheStore(): Promise<CacheStore> {
+    const stored = await chrome.storage.local.get(CACHE_KEY);
+    return readCache(stored[CACHE_KEY]);
+  }
+
+  /**
+   * Remembers this run for the page. When nothing changed only the last-used time moves (the
+   * lifetime keeps counting from the first translation); otherwise the page is saved anew.
+   */
+  async function saveToCache(
+    key: string,
+    cached: CachedPage | null,
+    unchanged: boolean,
+    hashes: string[],
+    candidates: CandidateSegment[],
+    byId: Map<string, { decision: Decision; confidence: number }>,
+    entries: TranslationEntry[],
+  ): Promise<void> {
+    const now = Date.now();
+    const decisions: CachedPage["decisions"] = {};
+    const translations: CachedPage["translations"] = { ...(cached?.translations ?? {}) };
+    const entryById = new Map(entries.map((entry) => [entry.id, entry]));
+    candidates.forEach((segment, index) => {
+      const hash = hashes[index] as string;
+      const decision = byId.get(segment.id);
+      decisions[hash] = { d: decision?.decision ?? "translate", c: decision?.confidence ?? 1 };
+      const entry = entryById.get(segment.id);
+      if (entry?.state === "translated" && entry.translatedText !== undefined) {
+        translations[hash] = { t: entry.translatedText, ...(entry.translatedHtml && entry.translatedHtml !== entry.translatedText ? { h: entry.translatedHtml } : {}) };
+      }
+    });
+    const page = buildPage(hashes, decisions, translations, now);
+    if (cached && unchanged) page.savedAt = cached.savedAt;
+    // Read again: another panel may have saved a different page while this one was translating.
+    const latest = await loadCacheStore();
+    latest.pages[key] = page;
+    await chrome.storage.local.set({ [CACHE_KEY]: prune(latest, settingsRef.current.cacheTtlHours, now) });
+  }
+
+  async function refreshCacheInfo(): Promise<void> {
+    setCacheInfo(describeCache(await loadCacheStore().catch(() => emptyCache())));
+  }
+
+  async function clearCache(): Promise<void> {
+    await chrome.storage.local.remove(CACHE_KEY);
+    setCacheInfo({ pages: 0, chars: 0 });
+    setCacheNote(null);
   }
 
   async function requestTranslations(segments: CandidateSegment[]): Promise<Array<TranslationEntry & { translatedText: string; translatedHtml: string; state: "translated" }>> {
@@ -563,7 +684,7 @@ export function SidePanel() {
           type="button"
           aria-label={settingsOpen ? "翻訳画面に戻る" : "設定を開く"}
           aria-pressed={settingsOpen}
-          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) { void checkProviders(); void loadShortcuts(); } }}
+          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) { void checkProviders(); void loadShortcuts(); void refreshCacheInfo(); } }}
         >
           <Icon name="settings" />
         </button>
@@ -628,6 +749,40 @@ export function SidePanel() {
               ? "ページ側のルールで除いた残りをJevが確認し、本文だけを翻訳します。"
               : "Jevを使わず、ページ側のルールで除いた残りをすべて翻訳します。JevのAPIキーは不要です。"}
           </p>
+
+          <h3 className="settings-section" id="cache-label">翻訳のキャッシュ</h3>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="cache-label">
+            {([true, false] as const).map((value) => (
+              <button
+                key={String(value)}
+                type="button"
+                role="radio"
+                aria-checked={settings.cacheEnabled === value}
+                className={settings.cacheEnabled === value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, cacheEnabled: value })}
+              >
+                {value ? "保存する" : "保存しない"}
+              </button>
+            ))}
+          </div>
+          {settings.cacheEnabled && (
+            <>
+              <label className="field-label" htmlFor="cache-ttl">保存する時間</label>
+              <select id="cache-ttl" className="field" value={settings.cacheTtlHours} onChange={(event) => void persistSettings({ ...settings, cacheTtlHours: Number(event.target.value) })}>
+                {[...CACHE_TTL_HOURS].sort((a, b) => a - b).map((hours) => <option key={hours} value={hours}>{hours}時間</option>)}
+              </select>
+            </>
+          )}
+          <p className="field-hint">
+            {settings.cacheEnabled
+              ? "翻訳したページの結果を、この端末の拡張機能の中だけに保存し、同じページを開いたときに再利用します。ページの本文が変わっていた部分は翻訳し直します。外部へは送信しません。"
+              : "翻訳結果を保存しません。保存済みの内容は削除しました。"}
+          </p>
+          {settings.cacheEnabled && (
+            <button className="text-button" type="button" onClick={() => void clearCache()} disabled={cacheInfo.pages === 0}>
+              <Icon name="trash" />キャッシュを削除（{cacheInfo.pages}ページ）
+            </button>
+          )}
 
           <h3 className="settings-section">翻訳サービス</h3>
           <div className={`provider-card ${settings.useJev ? "" : "unused"}`}>
@@ -723,6 +878,17 @@ export function SidePanel() {
                 <div className={`progress ${busy && visibleEntries.length === 0 ? "indeterminate" : ""}`} aria-hidden="true">
                   <span style={{ width: `${Math.round(progress * 100)}%` }} />
                 </div>
+              )}
+              {cacheNote && !busy && (
+                <p className="cache-note">
+                  <Icon name="restore" />
+                  <span>
+                    {cacheNote.unchanged
+                      ? `${formatAge(Date.now() - cacheNote.savedAt)}の翻訳を再利用しました（翻訳サービスは呼んでいません）。`
+                      : `ページが更新されていました。変わっていない${cacheNote.reused}件は${formatAge(Date.now() - cacheNote.savedAt)}の翻訳を再利用し、${cacheNote.total - cacheNote.reused}件を翻訳しました。`}
+                  </span>
+                  <button type="button" className="text-button" onClick={() => void startTranslation(true)}>再翻訳</button>
+                </p>
               )}
             </div>
           </section>

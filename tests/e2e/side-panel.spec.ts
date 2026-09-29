@@ -118,7 +118,8 @@ test.describe("page-click mode", () => {
   });
 
   test("drops a slow result from an earlier scan", async ({ page }) => {
-    await openPanel(page);
+    // The second scan must reach Jev and DeepL again (its verdicts differ), so the cache stays out of it.
+    await openPanel(page, { settings: { cacheEnabled: false } });
     await page.evaluate(() => {
       const w = window as unknown as { __override: (type: string, handler: (m: { segments: Array<{ id: string }> }) => unknown) => void; __second?: boolean };
       w.__override("TRANSLATE_SEGMENTS", async (m) => {
