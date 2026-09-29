@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { installChromeMock, sentTypes, type MockOptions } from "./support/chrome-mock";
 
 const PANEL = "/src/sidepanel/index.html";
+/** The page-click button; the selection-translation button shares its class. */
+const PAGE_CLICK = ".pick-toggle:not(.selection-toggle)";
 
 async function openPanel(page: Page, options: MockOptions = {}): Promise<string[]> {
   const errors: string[] = [];
@@ -108,8 +110,8 @@ test.describe("page-click mode", () => {
     await translate(page);
     expect(await cardIds(page)).toEqual([]);
 
-    await page.locator(".pick-toggle").click();
-    await expect(page.locator(".pick-toggle")).toHaveAttribute("aria-pressed", "true");
+    await page.locator(PAGE_CLICK).click();
+    await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __emit?: unknown }).__emit)).toBe("function");
     await page.evaluate((event) => (window as unknown as { __emit: (event: unknown) => void }).__emit(event), added("manual-1", "Added by hand from the footer."));
 
@@ -131,7 +133,7 @@ test.describe("page-click mode", () => {
       });
     });
     await translate(page);
-    await page.locator(".pick-toggle").click();
+    await page.locator(PAGE_CLICK).click();
     await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __emit?: unknown }).__emit)).toBe("function");
     await page.evaluate((event) => (window as unknown as { __emit: (event: unknown) => void }).__emit(event), added("segment-3", "Subscribe to our newsletter", ["segment-4"]));
 
@@ -229,7 +231,7 @@ test.describe("scrolling to a card", () => {
     await page.setViewportSize({ width: 380, height: 640 });
     await many(page);
     await translate(page);
-    await page.locator(".pick-toggle").click();
+    await page.locator(PAGE_CLICK).click();
     await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __emit?: unknown }).__emit)).toBe("function");
 
     const scrollPositions: number[] = [];

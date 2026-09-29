@@ -25,13 +25,14 @@
   <main>
     <p class="eyebrow">PAGE TRANSLATE</p>
     <h1>プライバシーポリシー</h1>
-    <p class="updated">最終更新日：2026年9月29日</p>
+    <p class="updated">最終更新日：2026年9月30日</p>
 
     <p>Page Translateは、利用者が翻訳を開始したときに、表示中のページから文章を抽出して英語と日本語の翻訳を行うChrome拡張機能です。このポリシーでは、拡張機能が扱う情報、送信先、保存期間を説明します。</p>
 
     <h2>扱う情報と利用目的</h2>
     <ul>
       <li><strong>ページ情報：</strong>利用者が翻訳を開始したとき、ページの文章、ページタイトル、文章の位置情報を翻訳対象の判定と表示に使います。ページのURLはサイドパネルに表示しますが、APIリクエストの本文には含めません。</li>
+      <li><strong>選択範囲翻訳：</strong>利用者がページ上で選んだ文章を、DeepLで翻訳して選んだ場所のそばに表示するために使います。ページ全体の翻訳とは別に使え、Jevには送りません。同じ文章をもう一度選んだときのために、翻訳結果をサイドパネルのメモリ上に一時的に（最新の50件まで）保持しますが、ディスクには保存せず、パネルを閉じると失われます。</li>
       <li><strong>英作文チェックの入力：</strong>利用者が英作文に入力した英文と日本語を、訳し戻し、お手本の英訳、日本語からの英訳、DeepL Writeによる添削に使います。文脈として使う設定のときは、開いているページのタイトルと本文も使います。</li>
       <li><strong>APIキー：</strong>利用者が設定画面に入力したTypeSafe JevとDeepLのAPIキーを、それぞれのサービスへの認証に使います。</li>
       <li><strong>設定：</strong>翻訳先言語、表示モード、DeepLの接続先、Jevを使うかどうか、英作文チェックの設定、データ送信への同意を拡張機能内に保存します。</li>
@@ -39,7 +40,7 @@
     </ul>
 
     <h2>送信先と共有</h2>
-    <p>翻訳を開始すると、抽出した候補文章、文章の位置情報、ページタイトル、翻訳先言語がTypeSafe JevへHTTPSで送信されます。Jevが翻訳対象に選んだ文章だけがDeepLへHTTPSで送信されます。設定でJevを使わない場合は、Jevへは送信せず、抽出した候補文章をDeepLへ送信します。英作文チェックを使うと、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLへHTTPSで送信されます。APIキーは各サービスへの認証情報として各サービスに直接送信されます。</p>
+    <p>翻訳を開始すると、抽出した候補文章、文章の位置情報、ページタイトル、翻訳先言語がTypeSafe JevへHTTPSで送信されます。Jevが翻訳対象に選んだ文章だけがDeepLへHTTPSで送信されます。設定でJevを使わない場合は、Jevへは送信せず、抽出した候補文章をDeepLへ送信します。選択範囲翻訳を使うと、選んだ文章がDeepLへHTTPSで送信されます。英作文チェックを使うと、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLへHTTPSで送信されます。APIキーは各サービスへの認証情報として各サービスに直接送信されます。</p>
     <p>Page Translateの開発者が運営する中継サーバーはありません。開発者はページ文章、英作文チェックの入力、APIキー、翻訳結果を受信・保存せず、広告、分析、プロファイリングにも利用しません。TypeSafe JevおよびDeepLによる情報の処理は、それぞれの利用条件とプライバシーポリシーに従います。</p>
     <ul>
       <li><a href="https://typesafe.ai/legal/privacy-policy">TypeSafe AI プライバシーポリシー</a></li>
@@ -68,12 +69,13 @@
 
     <p class="eyebrow">ENGLISH</p>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: September 29, 2026</p>
+    <p class="updated">Last updated: September 30, 2026</p>
     <p>Page Translate is a Chrome extension that extracts text from the page you are viewing when you start a translation. It translates between English and Japanese. This policy explains what the extension handles, where information is sent, and how long it is kept.</p>
 
     <h2>Information and purpose</h2>
     <ul>
       <li><strong>Page information:</strong> When you start a translation, the extension uses page text, the page title, and text-location details to select and display translations. The page URL is shown in the side panel but is not included in API request bodies.</li>
+      <li><strong>Selection translation:</strong> Text you select on a page is translated by DeepL and shown in a tooltip next to the selection. It works without translating the whole page, and nothing is sent to Jev. So that selecting the same text again costs nothing, the translation is kept briefly in the side panel's memory (the latest 50) and is never written to disk; it is lost when the panel closes.</li>
       <li><strong>Writing check input:</strong> English and Japanese text you enter in the writing check is used for back-translation, a model translation, and DeepL Write corrections. If you choose to use the open page as context, its title and main text are used too.</li>
       <li><strong>API keys:</strong> TypeSafe Jev and DeepL keys that you enter are used to authenticate requests to those services.</li>
       <li><strong>Settings:</strong> The target language, display mode, DeepL server choice, whether Jev is used, writing check options, and your data-sharing consent are stored by the extension.</li>
@@ -81,7 +83,7 @@
     </ul>
 
     <h2>Recipients and sharing</h2>
-    <p>When you start a translation, candidate page text, text-location details, the page title, and the target language are sent to TypeSafe Jev over HTTPS. Only text Jev selects for translation is sent to DeepL over HTTPS. If you turn Jev off in Settings, nothing is sent to Jev and the extracted candidate text is sent to DeepL. When you use the writing check, the English and Japanese text you enter, and the page title and main text if you use the page as context, are sent to DeepL over HTTPS. API keys are sent directly to each service for authentication.</p>
+    <p>When you start a translation, candidate page text, text-location details, the page title, and the target language are sent to TypeSafe Jev over HTTPS. Only text Jev selects for translation is sent to DeepL over HTTPS. If you turn Jev off in Settings, nothing is sent to Jev and the extracted candidate text is sent to DeepL. When you use selection translation, the text you select is sent to DeepL over HTTPS. When you use the writing check, the English and Japanese text you enter, and the page title and main text if you use the page as context, are sent to DeepL over HTTPS. API keys are sent directly to each service for authentication.</p>
     <p>Page Translate has no developer-operated relay server. The developer does not receive or store page text, writing check input, API keys, or translations, and does not use them for advertising, analytics, or profiling. TypeSafe Jev and DeepL process information under their respective terms and privacy policies.</p>
     <ul>
       <li><a href="https://typesafe.ai/legal/privacy-policy">TypeSafe AI Privacy Policy</a></li>

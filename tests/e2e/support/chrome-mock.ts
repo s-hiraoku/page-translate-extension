@@ -63,6 +63,9 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
       }),
       CHECK_PROVIDERS: () => ({ providers: { jev: true, deepl: true }, deeplPlan }),
       FOCUS_SEGMENT: () => ({ focused: true }),
+      READ_SELECTION: () => ({ id: 1, text: "The tide rises twice a day along most coastlines." }),
+      TRANSLATE_SELECTION: (m) => ({ text: `訳:${String(m.text)}` }),
+      SELECTION_RESULT: () => ({ shown: true }),
       PAGE_TEXT: () => ({ title: "Release notes", text: "We plan to ship version 2.0 next month." }),
       COMPOSE_TRANSLATE: (m) => m.targetLang === "JA"
         ? { text: "次のバージョンのリリース予定について尋ねたいです。" }
@@ -72,14 +75,21 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
 
     const port = (name: string) => {
       const listeners: Array<(message: unknown) => void> = [];
+      const disconnectListeners: Array<() => void> = [];
       const portObject = {
         name,
         onMessage: { addListener: (listener: (message: unknown) => void) => listeners.push(listener) },
-        onDisconnect: { addListener: () => undefined },
+        onDisconnect: { addListener: (listener: () => void) => disconnectListeners.push(listener) },
         postMessage: (message: unknown) => { if (name === "page-pick") w.__pickTargets = message; },
         disconnect: () => { w.__disconnected = ((w.__disconnected as number) ?? 0) + 1; },
       };
       if (name === "page-pick") w.__emit = (message: unknown) => listeners.forEach((listener) => listener(message));
+      if (name === "selection-translate") {
+        // The page reports a selection through this port; the page can also drop the connection.
+        w.__connected = ((w.__connected as string[]) ?? []).concat(name);
+        w.__emitSelection = (message: unknown) => listeners.forEach((listener) => listener(message));
+        w.__dropSelectionPort = () => disconnectListeners.forEach((listener) => listener());
+      }
       return portObject;
     };
 

@@ -1,5 +1,8 @@
-import type { CandidateSegment, FocusAnchor, PagePickEvent, PagePickRequest, PagePickTarget, ScanResult, SegmentRegion, TranslationEntry } from "../shared/types";
-import { PAGE_PICK_PORT, PANEL_PRESENCE_PORT } from "../shared/types";
+import type { CandidateSegment, FocusAnchor, PagePickEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionEvent, TranslationEntry } from "../shared/types";
+import { PAGE_PICK_PORT, PANEL_PRESENCE_PORT, SELECTION_PORT } from "../shared/types";
+import { readCurrentSelection, type CurrentSelection } from "./selection";
+import { createSelectionTooltip, type SelectionTooltip, type TooltipState } from "./selection-tooltip";
+import type { Box } from "./tooltip-layout";
 import { connectorPath } from "./connector";
 import { createScreenTopTracker, geometryTop } from "../shared/screen-top";
 import { classifyRegion, detectMainContent, isHardNoise, linkDensity, segmentKind, type MainContentInfo } from "./main-content";
@@ -78,6 +81,25 @@ function handlePanelMessage(message: { type: string }, sendResponse: (response: 
     const { anchor } = message as unknown as { anchor: FocusAnchor };
     focusOverlay?.retarget(anchor);
     sendResponse({ updated: focusOverlay !== null });
+    return;
+  }
+  if (type === "READ_SELECTION") {
+    // Selection translation on demand (the shortcut): the panel translates what is selected now.
+    const selected = readCurrentSelection();
+    if (!selected) {
+      showNoticeTooltip("翻訳する文章を選択してから、もう一度実行してください。");
+      sendResponse({ empty: true } satisfies ReadSelectionResult);
+      return;
+    }
+    sendResponse({ id: showSelectionTooltip(selected), text: selected.text } satisfies ReadSelectionResult);
+    return;
+  }
+  if (type === "SELECTION_RESULT") {
+    const { id, text, note, error } = message as unknown as { id: number; text?: string; note?: string; error?: string };
+    const state: TooltipState = error !== undefined ? { kind: "error", text: error } : note !== undefined ? { kind: "note", text: note } : { kind: "done", text: text ?? "" };
+    const shown = selectionUi !== null && selectionUi.id === id;
+    if (shown) selectionUi?.tooltip.update(state);
+    sendResponse({ shown });
   }
 }
 
@@ -746,4 +768,128 @@ function isVisible(element: HTMLElement): boolean {
 
 function normalizeText(value: string): string {
   return value.replace(/\u00a0/g, " ").replace(/[\t\r ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Selection translation. The tooltip shows the translation next to the selected text and lives
+ * until the reader clicks elsewhere, presses Esc, selects something else or closes the panel
+ * (in selection mode). The panel does the translating; the page only reads the selection and
+ * draws the tooltip.
+ */
+let selectionUi: { id: number; text: string; tooltip: SelectionTooltip; dispose: () => void } | null = null;
+let selectionSeq = 0;
+let selectionMode: { port: chrome.runtime.Port; dispose: () => void } | null = null;
+
+function rangeBox(range: Range): Box | null {
+  try {
+    const rect = range.getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+    const first = range.getClientRects()[0];
+    return first ? { left: first.left, top: first.top, right: first.right, bottom: first.bottom } : null;
+  } catch {
+    return null;
+  }
+}
+
+function closeSelectionTooltip(): void {
+  const ui = selectionUi;
+  selectionUi = null;
+  ui?.dispose();
+  ui?.tooltip.destroy();
+}
+
+/** Shows a tooltip in its "translating" state for this selection and returns the id its answer must carry. */
+function showSelectionTooltip(selected: CurrentSelection): number {
+  closeSelectionTooltip();
+  selectionSeq += 1;
+  const id = selectionSeq;
+  const tooltip = createSelectionTooltip(() => rangeBox(selected.range), closeSelectionTooltip);
+  openTooltip(id, selected.text, tooltip);
+  return id;
+}
+
+/** A message (for example "nothing selected") in the same tooltip, at the top of the viewport. */
+function showNoticeTooltip(text: string): void {
+  closeSelectionTooltip();
+  selectionSeq += 1;
+  const width = document.documentElement.clientWidth || window.innerWidth;
+  const tooltip = createSelectionTooltip(() => ({ left: width / 2, right: width / 2, top: 24, bottom: 24 }), closeSelectionTooltip);
+  tooltip.update({ kind: "note", text });
+  const timer = window.setTimeout(closeSelectionTooltip, 4000);
+  openTooltip(selectionSeq, "", tooltip, () => window.clearTimeout(timer));
+}
+
+function openTooltip(id: number, text: string, tooltip: SelectionTooltip, extraDispose?: () => void): void {
+  let frame = 0;
+  const follow = () => {
+    if (frame === 0) frame = requestAnimationFrame(() => { frame = 0; tooltip.reposition(); });
+  };
+  const onPointerDown = (event: PointerEvent) => {
+    if (!event.composedPath().includes(tooltip.host)) closeSelectionTooltip();
+  };
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === "Escape") closeSelectionTooltip();
+  };
+  window.addEventListener("scroll", follow, { passive: true, capture: true });
+  window.addEventListener("resize", follow, { passive: true });
+  window.addEventListener("pointerdown", onPointerDown, true);
+  window.addEventListener("keydown", onKey, true);
+  selectionUi = {
+    id,
+    text,
+    tooltip,
+    dispose: () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", follow, { capture: true });
+      window.removeEventListener("resize", follow);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKey, true);
+      extraDispose?.();
+    },
+  };
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== SELECTION_PORT) return;
+  startSelectionMode(port);
+});
+
+/** While the panel holds the selection port open, selecting text asks the panel to translate it. */
+function startSelectionMode(port: chrome.runtime.Port): void {
+  stopSelectionMode();
+  let timer = 0;
+  const check = () => {
+    const selected = readCurrentSelection();
+    if (!selected || selectionUi?.text === selected.text) return;
+    const id = showSelectionTooltip(selected);
+    port.postMessage({ type: "selected", id, text: selected.text } satisfies SelectionEvent);
+  };
+  const schedule = (event: Event) => {
+    if (selectionUi && event.composedPath().includes(selectionUi.tooltip.host)) return;
+    window.clearTimeout(timer);
+    timer = window.setTimeout(check, 120);
+  };
+  const onKeyUp = (event: KeyboardEvent) => {
+    // Selecting with the keyboard: Shift+arrows, or Ctrl/Cmd+A.
+    if (event.shiftKey || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a")) schedule(event);
+  };
+  window.addEventListener("mouseup", schedule, true);
+  window.addEventListener("keyup", onKeyUp, true);
+  port.onDisconnect.addListener(() => {
+    if (selectionMode?.port === port) stopSelectionMode();
+  });
+  selectionMode = {
+    port,
+    dispose: () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("mouseup", schedule, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    },
+  };
+}
+
+function stopSelectionMode(): void {
+  selectionMode?.dispose();
+  selectionMode = null;
+  closeSelectionTooltip();
 }
