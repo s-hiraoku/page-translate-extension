@@ -215,6 +215,12 @@ export function SidePanel() {
     };
     const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area === "session" && changes[PANEL_COMMAND_KEY]?.newValue) take(changes[PANEL_COMMAND_KEY].newValue);
+      // The context menu switches "translate as I select" from outside the panel.
+      const changed = area === "local" ? changes[SETTINGS_KEY]?.newValue as Partial<ExtensionSettings> | undefined : undefined;
+      if (changed && typeof changed.selectionAutoTranslate === "boolean") {
+        const enabled = changed.selectionAutoTranslate;
+        setSettings((current) => current.selectionAutoTranslate === enabled ? current : { ...current, selectionAutoTranslate: enabled });
+      }
     };
     chrome.storage.onChanged.addListener(onChanged);
     void chrome.windows.getCurrent()
@@ -472,6 +478,12 @@ export function SidePanel() {
     consentResolver.current?.(false);
     setConsentOpen(true);
     return new Promise((resolve) => { consentResolver.current = resolve; });
+  }
+
+  /** Turning "translate as I select" on sends the reader's selections to DeepL, so it needs the consent first. */
+  async function changeSelectionAuto(enabled: boolean): Promise<void> {
+    if (enabled && !(await ensureConsent())) return;
+    await persistSettings({ ...settingsRef.current, selectionAutoTranslate: enabled });
   }
 
   async function answerConsent(agreed: boolean): Promise<void> {
@@ -985,6 +997,25 @@ export function SidePanel() {
             {settings.useJev
               ? "ページ側のルールで除いた残りをJevが確認し、本文だけを翻訳します。"
               : "Jevを使わず、ページ側のルールで除いた残りをすべて翻訳します。JevのAPIキーは不要です。"}
+          </p>
+
+          <h3 className="settings-section" id="selection-auto-label">選択したら自動で翻訳</h3>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="selection-auto-label">
+            {([true, false] as const).map((value) => (
+              <button
+                key={String(value)}
+                type="button"
+                role="radio"
+                aria-checked={settings.selectionAutoTranslate === value}
+                className={settings.selectionAutoTranslate === value ? "active" : ""}
+                onClick={() => void changeSelectionAuto(value)}
+              >
+                {value ? "オン" : "オフ"}
+              </button>
+            ))}
+          </div>
+          <p className="field-hint">
+            オンにすると、パネルを閉じていても、ページで文章を選ぶだけで、その場のツールチップに翻訳を表示します（DeepLだけを使います）。ページ上の右クリックメニューからも切り替えられます。
           </p>
 
           <h3 className="settings-section" id="cache-label">翻訳のキャッシュ</h3>

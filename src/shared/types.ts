@@ -92,6 +92,8 @@ export interface ExtensionSettings {
   cacheEnabled: boolean;
   /** How long a cached translation is reused, in hours. */
   cacheTtlHours: number;
+  /** Translate text as it is selected on any page, with the side panel closed too. */
+  selectionAutoTranslate: boolean;
 }
 
 export const SETTINGS_KEY = "pageTranslateSettings";
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   composePageContext: false,
   cacheEnabled: true,
   cacheTtlHours: 3,
+  selectionAutoTranslate: false,
 };
 
 export type ExtensionMessage =
@@ -128,6 +131,9 @@ export type ExtensionMessage =
   | { type: "READ_SELECTION" }
   | { type: "TRANSLATE_SELECTION"; text: string; targetLang: ComposeLanguage }
   | { type: "SELECTION_RESULT"; id: number; text?: string; note?: string; error?: string }
+  // A page (content script) reports a selection while "translate as I select" is on; the answer goes back as SELECTION_RESULT.
+  | { type: "SELECTION_FROM_PAGE"; id: number; text: string }
+  | { type: "GET_SELECTION_AUTO" }
   | { type: "COMPOSE_TRANSLATE"; text: string; targetLang: ComposeLanguage; context?: string }
   | { type: "COMPOSE_REPHRASE"; text: string; targetLang: EnglishVariant; style: WritingStyle };
 
@@ -194,6 +200,9 @@ export const SELECTION_PORT = "selection-translate";
 
 /** Longest selection that is translated (DeepL characters are billed). */
 export const SELECTION_MAX_CHARS = 5000;
+
+/** Service worker → pages: "translate as I select" was switched on or off. */
+export type SelectionAutoChanged = { type: "SELECTION_AUTO_CHANGED"; enabled: boolean };
 
 /** Page → side panel over the selection port: the reader selected this text. `id` ties the answer to its tooltip. */
 export type SelectionEvent = { type: "selected"; id: number; text: string };

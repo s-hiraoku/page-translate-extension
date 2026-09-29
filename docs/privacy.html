@@ -25,14 +25,14 @@
   <main>
     <p class="eyebrow">PAGE TRANSLATE</p>
     <h1>プライバシーポリシー</h1>
-    <p class="updated">最終更新日：2026年9月30日</p>
+    <p class="updated">最終更新日：2026年9月29日</p>
 
     <p>Page Translateは、利用者が翻訳を開始したときに、表示中のページから文章を抽出して英語と日本語の翻訳を行うChrome拡張機能です。このポリシーでは、拡張機能が扱う情報、送信先、保存期間を説明します。</p>
 
     <h2>扱う情報と利用目的</h2>
     <ul>
       <li><strong>ページ情報：</strong>利用者が翻訳を開始したとき、ページの文章、ページタイトル、文章の位置情報を翻訳対象の判定と表示に使います。ページのURLはサイドパネルに表示しますが、APIリクエストの本文には含めません。</li>
-      <li><strong>選択範囲翻訳：</strong>利用者がページ上で選んだ文章を、DeepLで翻訳して選んだ場所のそばに表示するために使います。ページ全体の翻訳とは別に使え、Jevには送りません。同じ文章をもう一度選んだときのために、翻訳結果をサイドパネルのメモリ上に一時的に（最新の50件まで）保持しますが、ディスクには保存せず、パネルを閉じると失われます。</li>
+      <li><strong>選択範囲翻訳：</strong>利用者がページ上で選んだ文章を、DeepLで翻訳して選んだ場所のそばに表示するために使います。ページ全体の翻訳とは別に使え、Jevには送りません。同じ文章をもう一度選んだときのために、翻訳結果をサイドパネルのメモリ上に一時的に（最新の50件まで）保持しますが、ディスクには保存せず、パネルを閉じると失われます。「選択したら自動で翻訳」をオンにした場合は、パネルを閉じていても、ページで選んだ文章を同じ方法でDeepLへ送って翻訳します（設定と右クリックメニューで切り替えられ、初期値はオフです）。このときの翻訳結果は、拡張機能のバックグラウンド処理のメモリ上に一時的に（最新の50件まで）保持し、ディスクには保存しません。</li>
       <li><strong>英作文チェックの入力：</strong>利用者が英作文に入力した英文と日本語を、訳し戻し、お手本の英訳、日本語からの英訳、DeepL Writeによる添削に使います。文脈として使う設定のときは、開いているページのタイトルと本文も使います。</li>
       <li><strong>APIキー：</strong>利用者が設定画面に入力したTypeSafe JevとDeepLのAPIキーを、それぞれのサービスへの認証に使います。</li>
       <li><strong>設定：</strong>翻訳先言語、表示モード、DeepLの接続先、Jevを使うかどうか、英作文チェックの設定、データ送信への同意を拡張機能内に保存します。</li>
@@ -69,13 +69,13 @@
 
     <p class="eyebrow">ENGLISH</p>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: September 30, 2026</p>
+    <p class="updated">Last updated: September 29, 2026</p>
     <p>Page Translate is a Chrome extension that extracts text from the page you are viewing when you start a translation. It translates between English and Japanese. This policy explains what the extension handles, where information is sent, and how long it is kept.</p>
 
     <h2>Information and purpose</h2>
     <ul>
       <li><strong>Page information:</strong> When you start a translation, the extension uses page text, the page title, and text-location details to select and display translations. The page URL is shown in the side panel but is not included in API request bodies.</li>
-      <li><strong>Selection translation:</strong> Text you select on a page is translated by DeepL and shown in a tooltip next to the selection. It works without translating the whole page, and nothing is sent to Jev. So that selecting the same text again costs nothing, the translation is kept briefly in the side panel's memory (the latest 50) and is never written to disk; it is lost when the panel closes.</li>
+      <li><strong>Selection translation:</strong> Text you select on a page is translated by DeepL and shown in a tooltip next to the selection. It works without translating the whole page, and nothing is sent to Jev. So that selecting the same text again costs nothing, the translation is kept briefly in the side panel's memory (the latest 50) and is never written to disk; it is lost when the panel closes. If you turn on “Translate as I select” (in Settings or the page's context menu; off by default), text you select is sent to DeepL in the same way even while the panel is closed. Those translations are kept briefly in the extension's background memory (the latest 50) and are never written to disk.</li>
       <li><strong>Writing check input:</strong> English and Japanese text you enter in the writing check is used for back-translation, a model translation, and DeepL Write corrections. If you choose to use the open page as context, its title and main text are used too.</li>
       <li><strong>API keys:</strong> TypeSafe Jev and DeepL keys that you enter are used to authenticate requests to those services.</li>
       <li><strong>Settings:</strong> The target language, display mode, DeepL server choice, whether Jev is used, writing check options, and your data-sharing consent are stored by the extension.</li>

@@ -223,3 +223,48 @@ test.describe("the shortcut", () => {
     expect(await sent(page, "SELECTION_RESULT")).toMatchObject([{ id: 6, text: expect.stringContaining("Selected during") }]);
   });
 });
+
+test.describe("translate as I select (works with the panel closed)", () => {
+  const SETTINGS_KEY = "pageTranslateSettings";
+  const auto = (page: Page) => page.getByRole("radiogroup", { name: "選択したら自動で翻訳" });
+  const storedAuto = (page: Page) => page.evaluate(async (key) => {
+    const chromeApi = (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, { selectionAutoTranslate?: boolean }>> } } } }).chrome;
+    return (await chromeApi.storage.local.get(key))[key]?.selectionAutoTranslate;
+  }, SETTINGS_KEY);
+
+  test("is off by default and can be turned on in Settings", async ({ page }) => {
+    await openPanel(page);
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await expect(auto(page).getByRole("radio", { name: "オフ" })).toHaveAttribute("aria-checked", "true");
+
+    await auto(page).getByRole("radio", { name: "オン" }).click();
+
+    await expect(auto(page).getByRole("radio", { name: "オン" })).toHaveAttribute("aria-checked", "true");
+    await expect.poll(() => storedAuto(page)).toBe(true);
+  });
+
+  test("asks for consent first, and stays off if the reader declines", async ({ page }) => {
+    await openPanel(page, { consent: null });
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await auto(page).getByRole("radio", { name: "オン" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole("button", { name: "キャンセル" }).click();
+
+    await expect(auto(page).getByRole("radio", { name: "オフ" })).toHaveAttribute("aria-checked", "true");
+    expect(await storedAuto(page)).not.toBe(true);
+  });
+
+  test("follows the context menu, which changes the setting from outside the panel", async ({ page }) => {
+    await openPanel(page);
+    await page.getByRole("button", { name: "設定を開く" }).click();
+
+    await page.evaluate(async (key) => {
+      const chromeApi = (window as unknown as { chrome: { storage: { local: { set: (values: object) => Promise<void> } } } }).chrome;
+      await chromeApi.storage.local.set({ [key]: { selectionAutoTranslate: true } });
+    }, SETTINGS_KEY);
+
+    await expect(auto(page).getByRole("radio", { name: "オン" })).toHaveAttribute("aria-checked", "true");
+  });
+});
