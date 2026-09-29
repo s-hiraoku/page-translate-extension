@@ -500,6 +500,8 @@ export function SidePanel() {
     setPickMode("off");
     setWatchTabId(null);
     boundTabRef.current = null;
+    // Lets every page this panel drew on remove its connector and tooltip.
+    dropPresence();
   }
   resetToStartRef.current = resetToStart;
 
@@ -615,7 +617,9 @@ export function SidePanel() {
     setEntries([]);
     setDroppedCount(0);
     setSelectedId(null);
-    setPagePick(false);
+    // The results are cleared, so the modes that work on them end too, and the old page loses its connector.
+    setPickMode("off");
+    dropPresence();
     setCacheNote(null);
     setStatus("ページの文章を調べています…");
     try {
@@ -1276,6 +1280,14 @@ async function holdPresence(): Promise<void> {
   } catch {
     // Pages without the content script have no connector to clean up.
   }
+}
+
+/** Lets go of every page: each one takes its connector and selection tooltip away. */
+function dropPresence(): void {
+  for (const port of presencePorts.values()) {
+    try { port.disconnect(); } catch { /* already gone */ }
+  }
+  presencePorts.clear();
 }
 
 async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {

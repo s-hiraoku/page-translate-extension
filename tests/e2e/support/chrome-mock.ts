@@ -81,8 +81,12 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         onMessage: { addListener: (listener: (message: unknown) => void) => listeners.push(listener) },
         onDisconnect: { addListener: (listener: () => void) => disconnectListeners.push(listener) },
         postMessage: (message: unknown) => { if (name === "page-pick") w.__pickTargets = message; },
-        disconnect: () => { w.__disconnected = ((w.__disconnected as number) ?? 0) + 1; },
+        disconnect: () => {
+          w.__disconnected = ((w.__disconnected as number) ?? 0) + 1;
+          if (name === "panel-presence") w.__presenceClosed = ((w.__presenceClosed as number) ?? 0) + 1;
+        },
       };
+      if (name === "panel-presence") w.__presenceOpened = ((w.__presenceOpened as number) ?? 0) + 1;
       if (name === "page-pick") w.__emit = (message: unknown) => listeners.forEach((listener) => listener(message));
       if (name === "selection-translate") {
         // The page reports a selection through this port; the page can also drop the connection.

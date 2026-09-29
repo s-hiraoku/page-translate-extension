@@ -90,6 +90,17 @@ test.describe("navigating the page", () => {
     await expect(page.locator(".error-banner")).toHaveCount(0);
   });
 
+  test("translating again turns selection mode off, since the results it works on are cleared", async ({ page }) => {
+    await openPanel(page);
+    await translate(page);
+    await page.locator(SELECTION).click();
+    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "true");
+
+    await page.locator(".translate-button").click();
+
+    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "false");
+  });
+
   test("can translate again after returning to the start", async ({ page }) => {
     await openPanel(page);
     await translate(page);
@@ -139,6 +150,18 @@ test.describe("switching tabs", () => {
     await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator("body")).toContainText(START_TEXT);
     expect(errors).toEqual([]);
+  });
+
+  test("lets the old page take its connector away", async ({ page }) => {
+    await openPanel(page);
+    await translate(page);
+    await page.locator(".entry-card").first().click();
+    const count = (name: "__presenceOpened" | "__presenceClosed") => page.evaluate((key) => (window as unknown as Record<string, number | undefined>)[key] ?? 0, name);
+    await expect.poll(() => count("__presenceOpened")).toBe(1);
+
+    await activate(page, 99, PANEL_WINDOW);
+
+    await expect.poll(() => count("__presenceClosed")).toBe(1);
   });
 
   test("turns selection mode off when the tab changes, even without a translation", async ({ page }) => {
