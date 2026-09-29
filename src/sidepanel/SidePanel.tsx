@@ -126,6 +126,8 @@ export function SidePanel() {
   });
   /** Tab whose page the results on screen belong to; the panel watches it for navigation. */
   const [watchTabId, setWatchTabId] = useState<number | null>(null);
+  // The tab the results and modes belong to; switching to another tab in this window clears them.
+  const boundTabRef = useRef<number | null>(null);
   /** Set once the stored settings are read, so nothing acts on the defaults in the meantime. */
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   /** What the last run took from the translation cache, shown under the status. */
@@ -289,6 +291,21 @@ export function SidePanel() {
     };
   }, [watchTabId]);
 
+  // Switching to another tab leaves the page the results belong to, so start over. Only tabs of this
+  // panel's own window count: activations in other windows say nothing about this one.
+  useEffect(() => {
+    let windowId: number | undefined;
+    void chrome.windows.getCurrent().then((current) => { windowId = current.id; }).catch(() => undefined);
+    const onActivated = (info?: { tabId?: number; windowId?: number }) => {
+      const bound = boundTabRef.current;
+      if (bound === null || info?.tabId === undefined || info.tabId === bound) return;
+      if (windowId !== undefined && info.windowId !== undefined && info.windowId !== windowId) return;
+      resetToStartRef.current();
+    };
+    chrome.tabs.onActivated?.addListener(onActivated);
+    return () => chrome.tabs.onActivated?.removeListener(onActivated);
+  }, []);
+
   // While selection translation is on, hold a port to the tab: it reports each selection, and the
   // translation goes back to the page's tooltip. Closing the panel drops the port and ends the mode.
   const translateSelectedRef = useRef<(id: number, text: string) => void>(() => undefined);
@@ -299,6 +316,7 @@ export function SidePanel() {
     void (async () => {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       if (cancelled || tab?.id === undefined) return;
+      boundTabRef.current = tab.id;
       port = chrome.tabs.connect(tab.id, { name: SELECTION_PORT });
       const held = port;
       modePorts.current.add(held);
@@ -334,6 +352,7 @@ export function SidePanel() {
       if (cancelled || tab?.id === undefined) return;
       const zoom = await chrome.tabs.getZoom(tab.id).catch(() => 1);
       if (cancelled) return;
+      boundTabRef.current = tab.id;
       port = chrome.tabs.connect(tab.id, { name: PAGE_PICK_PORT });
       const held = port;
       modePorts.current.add(held);
@@ -480,6 +499,7 @@ export function SidePanel() {
     setCacheNote(null);
     setPickMode("off");
     setWatchTabId(null);
+    boundTabRef.current = null;
   }
   resetToStartRef.current = resetToStart;
 
@@ -604,6 +624,7 @@ export function SidePanel() {
       if (stale()) return false;
       const [scannedTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
       if (stale()) return false;
+      boundTabRef.current = scannedTab?.id ?? null;
       setWatchTabId(scannedTab?.id ?? null);
       setPageTitle(page.title);
       setPageUrl(new URL(page.url).hostname);
