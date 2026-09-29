@@ -118,8 +118,8 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
     });
     w.__session = session;
     // Tabs the reader switches to and from; tests call window.__activateTab().
-    const activated = new Set<() => void>();
-    w.__activateTab = () => activated.forEach((listener) => listener());
+    const activated = new Set<(info?: { tabId: number; windowId: number }) => void>();
+    w.__activateTab = (info?: { tabId: number; windowId: number }) => activated.forEach((listener) => listener(info));
     w.chrome = {
       storage: {
         local: area("local", store),
@@ -144,8 +144,8 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         connect: (_tabId: number, info?: { name?: string }) => port(info?.name ?? ""),
         create: async (properties: unknown) => { w.__createdTab = properties; return { id: 8 }; },
         onActivated: {
-          addListener: (listener: () => void) => activated.add(listener),
-          removeListener: (listener: () => void) => activated.delete(listener),
+          addListener: (listener: (info?: { tabId: number; windowId: number }) => void) => activated.add(listener),
+          removeListener: (listener: (info?: { tabId: number; windowId: number }) => void) => activated.delete(listener),
         },
       },
     };

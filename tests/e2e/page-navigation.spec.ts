@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installChromeMock } from "./support/chrome-mock";
+import { installChromeMock, PANEL_WINDOW_ID } from "./support/chrome-mock";
 
 const PANEL = "/src/sidepanel/index.html";
 const PAGE_CLICK = ".pick-toggle:not(.selection-toggle)";
@@ -119,5 +119,46 @@ test.describe("navigating the page", () => {
     await expect(page.locator(".entry-card")).toHaveCount(0);
     await expect(page.locator("body")).toContainText(START_TEXT);
     await expect(page.locator(".error-banner")).toHaveCount(0);
+  });
+});
+
+test.describe("switching tabs", () => {
+  const activate = (page: Page, tabId: number, windowId: number) =>
+    page.evaluate((info) => (window as unknown as { __activateTab: (info: object) => void }).__activateTab(info), { tabId, windowId });
+  const PANEL_WINDOW = PANEL_WINDOW_ID;
+
+  test("clears the translation and turns the modes off", async ({ page }) => {
+    const errors = await openPanel(page);
+    await translate(page);
+    await page.locator(PAGE_CLICK).click();
+    await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "true");
+
+    await activate(page, 99, PANEL_WINDOW);
+
+    await expect(page.locator(".entry-card")).toHaveCount(0);
+    await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("body")).toContainText(START_TEXT);
+    expect(errors).toEqual([]);
+  });
+
+  test("turns selection mode off when the tab changes, even without a translation", async ({ page }) => {
+    await openPanel(page);
+    await page.locator(SELECTION).click();
+    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __emitSelection?: unknown }).__emitSelection)).toBe("function");
+
+    await activate(page, 99, PANEL_WINDOW);
+
+    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("keeps everything when the same tab is activated again or another window changes tab", async ({ page }) => {
+    await openPanel(page);
+    await translate(page);
+
+    await activate(page, 7, PANEL_WINDOW);
+    await activate(page, 99, PANEL_WINDOW + 1);
+
+    await expect(page.locator(".entry-card").first()).toBeVisible();
   });
 });
