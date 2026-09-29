@@ -98,6 +98,9 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
       },
     });
     w.__session = session;
+    // Tabs the reader switches to and from; tests call window.__activateTab().
+    const activated = new Set<() => void>();
+    w.__activateTab = () => activated.forEach((listener) => listener());
     w.chrome = {
       storage: {
         local: area("local", store),
@@ -121,6 +124,10 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         getZoom: async () => 1,
         connect: (_tabId: number, info?: { name?: string }) => port(info?.name ?? ""),
         create: async (properties: unknown) => { w.__createdTab = properties; return { id: 8 }; },
+        onActivated: {
+          addListener: (listener: () => void) => activated.add(listener),
+          removeListener: (listener: () => void) => activated.delete(listener),
+        },
       },
     };
   }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID });

@@ -23,6 +23,7 @@ import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import { isInTargetLanguage, isMainProse } from "./rules";
 import { applyTheme, cachedTheme } from "./theme";
+import { createScreenTopTracker } from "../shared/screen-top";
 
 interface DecisionResult {
   decisions: Array<{ id: string; decision: Decision; confidence: number }>;
@@ -55,10 +56,12 @@ function withShortcut(label: string, shortcut: string | undefined): string {
 
 const colors = ["#2c5cf0", "#e0702a", "#0f8a6c", "#9150c8", "#c23d5f", "#6f8517"];
 
-/** Screen Y of the side panel viewport's top edge, learned from pointer events. */
-let panelScreenTop: number | null = null;
-window.addEventListener("pointermove", (event) => { panelScreenTop = event.screenY - event.clientY; }, { passive: true });
-window.addEventListener("pointerdown", (event) => { panelScreenTop = event.screenY - event.clientY; }, { passive: true });
+/** Screen Y of the side panel viewport's top edge, learned from pointer events and kept right when the window moves. */
+const panelTop = createScreenTopTracker();
+// Any pointer or wheel event carries exact screen coordinates.
+for (const type of ["pointermove", "pointerdown", "pointerover", "wheel"]) {
+  window.addEventListener(type, (event) => panelTop.learn(event as MouseEvent), { passive: true });
+}
 
 export function SidePanel() {
   const [settings, setSettings] = useState<ExtensionSettings>(() => ({ ...DEFAULT_SETTINGS, theme: cachedTheme() }));
@@ -91,16 +94,25 @@ export function SidePanel() {
     const update = () => {
       frame = 0;
       const card = document.querySelector<HTMLElement>(`[data-entry-id="${selectedId}"]`);
-      const anchor = card ? anchorFor(card, panelScreenTop) : undefined;
+      const anchor = card ? anchorFor(card, panelTop.top()) : undefined;
       if (anchor) void sendMessage({ type: "UPDATE_FOCUS_ANCHOR", anchor }).catch(() => undefined);
     };
     const schedule = () => { if (frame === 0) frame = requestAnimationFrame(update); };
+    const onVisible = () => { if (document.visibilityState === "visible") schedule(); };
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule, { passive: true });
+    // Coming back to Chrome or to this tab: the card may have moved (or the window with it) while
+    // scroll updates went nowhere, so line the connector up again.
+    window.addEventListener("focus", schedule);
+    document.addEventListener("visibilitychange", onVisible);
+    chrome.tabs.onActivated?.addListener(schedule);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("focus", schedule);
+      document.removeEventListener("visibilitychange", onVisible);
+      chrome.tabs.onActivated?.removeListener(schedule);
     };
   }, [selectedId]);
 
@@ -270,7 +282,7 @@ export function SidePanel() {
     const delta = scrollCardIntoView(card, true);
     // Without a known panel position the connector aims at the page's middle, which is
     // where the centered card is too.
-    const current = anchorFor(card, panelScreenTop);
+    const current = anchorFor(card, panelTop.top());
     await holdPresence();
     await sendMessage({
       type: "FOCUS_SEGMENT",
@@ -865,7 +877,7 @@ async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {
 function cardAnchor(event: ReactMouseEvent<HTMLElement>): FocusAnchor | undefined {
   const card = event.currentTarget.closest<HTMLElement>(".entry-card") ?? event.currentTarget;
   // Real clicks carry screen coordinates; keyboard activation reports 0/0.
-  return anchorFor(card, event.detail > 0 ? event.screenY - event.clientY : panelScreenTop);
+  return anchorFor(card, event.detail > 0 ? event.screenY - event.clientY : panelTop.top());
 }
 
 function anchorFor(card: HTMLElement, panelTop: number | null): FocusAnchor | undefined {
