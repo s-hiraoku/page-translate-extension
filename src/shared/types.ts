@@ -88,6 +88,10 @@ export interface ExtensionSettings {
    * where it bent the meaning toward the page's topic), which is no longer read.
    */
   composePageContext: boolean;
+  /** Keep a page's translation on this device for a few hours and reuse it. */
+  cacheEnabled: boolean;
+  /** How long a cached translation is reused, in hours. */
+  cacheTtlHours: number;
 }
 
 export const SETTINGS_KEY = "pageTranslateSettings";
@@ -104,6 +108,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   englishVariant: "EN-US",
   writingStyle: "default",
   composePageContext: false,
+  cacheEnabled: true,
+  cacheTtlHours: 3,
 };
 
 export type ExtensionMessage =
