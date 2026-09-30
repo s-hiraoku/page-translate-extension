@@ -4,7 +4,7 @@ import { installChromeMock, PANEL_WINDOW_ID } from "./support/chrome-mock";
 const PANEL = "/src/sidepanel/index.html";
 const PAGE_CLICK = ".pick-toggle:not(.selection-toggle)";
 const SELECTION = ".selection-toggle";
-const START_TEXT = "ページを開いて「翻訳を開始」を押してください。";
+const START_TEXT = "ページを開いて「このページを翻訳」を押してください。";
 
 async function openPanel(page: Page): Promise<string[]> {
   const errors: string[] = [];

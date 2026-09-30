@@ -7,7 +7,7 @@
 - Category: Productivity
 - Language: English
 - Support URL: https://github.com/s-hiraoku/page-translate-extension/issues
-- Homepage: https://github.com/s-hiraoku/page-translate-extension
+- Homepage: https://s-hiraoku.github.io/page-translate-extension/ (user guide)
 - Privacy policy: https://s-hiraoku.github.io/page-translate-extension/privacy.html (publish and verify HTTP 200 before adding it)
 
 ## Detailed description
@@ -48,7 +48,7 @@ Check the terms of TypeSafe Jev and your chosen DeepL API plan before sending te
 - `storage`: saves display settings and data-use consent, and holds API keys only for the Chrome session. It also keeps translated pages on this device for the time you choose (3 hours by default) so a page you reopen is not translated again; nothing is sent anywhere, and it can be turned off or deleted in Settings.
 - Connections to TypeSafe Jev and DeepL: used to classify candidate text and translate selected text.
 
-See the support page and privacy policy for more information.
+See the user guide, the support page and the privacy policy for more information.
 
 ## Images
 

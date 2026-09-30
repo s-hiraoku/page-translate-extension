@@ -65,7 +65,9 @@ const jevOptions: Array<{ value: boolean; label: string }> = [
   { value: false, label: "Jevを使わない" },
 ];
 
-const INITIAL_STATUS = "ページを開いて「翻訳を開始」を押してください。";
+const INITIAL_STATUS = "ページを開いて「このページを翻訳」を押してください。";
+/** The user guide (GitHub Pages, built from docs/). */
+const GUIDE_URL = "https://s-hiraoku.github.io/page-translate-extension/";
 
 /** Which of the two modes that react to selecting text on the page is on. One value, so both can never be. */
 type PickMode = "off" | "page-click" | "selection";
@@ -1249,6 +1251,12 @@ export function SidePanel() {
                 <li><span>2</span>{settings.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
                 <li><span>3</span>DeepLで翻訳</li>
               </ol>
+              {providerStatus && !providerStatus.providers.deepl && (
+                <p className="setup-hint">
+                  はじめに、DeepLのAPIキーを登録してください（TypeSafe Jevは、設定でオフにすれば不要です）。
+                  <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
+                </p>
+              )}
               {(shortcuts["translate-page"] || shortcuts["toggle-page-pick"]) && (
                 <p className="shortcut-hint">
                   {shortcutRows.filter((row) => shortcuts[row.command]).map((row) => (
@@ -1261,6 +1269,7 @@ export function SidePanel() {
 
           <footer className="panel-footer">
             <span className="privacy"><Icon name="shield" />{settings.useJev ? "翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信" : "翻訳時は本文をDeepLへ送信（Jevは不使用）"}</span>
+            <a className="text-button" href={GUIDE_URL} target="_blank" rel="noreferrer">使い方</a>
             {settings.displayMode === "inline" && translatedCount > 0 && (
               <button type="button" className="text-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>
                 <Icon name="restore" />原文に戻す

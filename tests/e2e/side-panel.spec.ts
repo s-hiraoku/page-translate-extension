@@ -378,3 +378,24 @@ test.describe("writing check", () => {
     await expect(page.locator(".compose-card").nth(2).locator("del, ins").first()).toBeVisible();
   });
 });
+
+test.describe("first run", () => {
+  test("points to the settings when no DeepL key is registered", async ({ page }) => {
+    await openPanel(page, { providers: { jev: false, deepl: false } });
+
+    await expect(page.locator(".setup-hint")).toContainText("DeepLのAPIキーを登録");
+    await page.locator(".setup-hint").getByRole("button", { name: "設定でAPIキーを登録" }).click();
+    await expect(page.getByRole("heading", { name: "設定" })).toBeVisible();
+  });
+
+  test("shows no such hint once a key is registered", async ({ page }) => {
+    await openPanel(page);
+    await expect(page.locator(".translate-button")).toBeVisible();
+    await expect(page.locator(".setup-hint")).toHaveCount(0);
+  });
+
+  test("links to the user guide from the panel", async ({ page }) => {
+    await openPanel(page);
+    await expect(page.getByRole("link", { name: "使い方" })).toHaveAttribute("href", "https://s-hiraoku.github.io/page-translate-extension/");
+  });
+});

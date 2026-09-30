@@ -16,6 +16,8 @@ export interface MockOptions {
   shortcuts?: Record<string, string>;
   /** Extra chrome.storage.local values present when the panel opens. */
   stored?: Record<string, unknown>;
+  /** Which API keys are registered; both by default. */
+  providers?: { jev: boolean; deepl: boolean };
 }
 
 /** Window the mocked side panel lives in. */
@@ -31,7 +33,7 @@ export const SEGMENTS = [
 ].map((segment) => ({ sourceHtml: segment.sourceText, linkDensity: 0, isArticleTitle: false, ...segment }));
 
 export async function installChromeMock(page: Page, options: MockOptions = {}): Promise<void> {
-  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId, stored }) => {
+  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId, stored, providers }) => {
     type Message = { type: string; [key: string]: unknown };
     type Handler = (message: Message) => unknown;
     const w = window as unknown as Record<string, unknown>;
@@ -61,7 +63,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
       TRANSLATE_SEGMENTS: (m) => ({
         translations: (m.segments as Array<{ id: string }>).map((s) => ({ id: s.id, translatedText: translations[s.id] ?? `訳:${s.id}`, translatedHtml: translations[s.id] ?? `訳:${s.id}` })),
       }),
-      CHECK_PROVIDERS: () => ({ providers: { jev: true, deepl: true }, deeplPlan }),
+      CHECK_PROVIDERS: () => ({ providers, deeplPlan }),
       FOCUS_SEGMENT: () => ({ focused: true }),
       READ_SELECTION: () => ({ id: 1, text: "The tide rises twice a day along most coastlines." }),
       TRANSLATE_SELECTION: (m) => ({ text: `訳:${String(m.text)}` }),
@@ -153,7 +155,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         },
       },
     };
-  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null });
+  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true } });
 }
 
 /** Message types the panel has sent so far, in order. */
