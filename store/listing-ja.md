@@ -7,7 +7,7 @@
 - カテゴリ：仕事効率化（Productivity）
 - 言語：日本語
 - サポートURL：https://github.com/s-hiraoku/page-translate-extension/issues
-- ホームページ：https://github.com/s-hiraoku/page-translate-extension
+- ホームページ：https://s-hiraoku.github.io/page-translate-extension/（使い方ガイド）
 - プライバシーポリシー：https://s-hiraoku.github.io/page-translate-extension/privacy.html（公開後、HTTP 200を確認してから登録）
 
 ## 詳細な説明
@@ -48,7 +48,7 @@ TypeSafe JevとDeepLのAPIキーは利用者自身で用意してください。
 - `storage`：表示設定とデータ送信への同意を保存し、APIキーをChromeセッション中だけ保持します。翻訳したページの結果も、同じページを開いたときに再利用するため、設定した時間（初期値3時間）だけこの端末の拡張機能内に保存します。外部へは送信せず、設定でオフにしたり削除したりできます。
 - TypeSafe Jev / DeepLへの接続：翻訳候補の判定と文章の翻訳に使います。
 
-サポートとプライバシーポリシーは上記URLをご覧ください。
+使い方ガイド、サポート、プライバシーポリシーは上記URLをご覧ください。
 
 ## 画像
 

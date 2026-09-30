@@ -17,12 +17,12 @@ import type {
   ReadSelectionResult,
   ScanResult,
   SegmentState,
-  SelectionEvent,
+ 
   TargetLanguage,
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -65,10 +65,12 @@ const jevOptions: Array<{ value: boolean; label: string }> = [
   { value: false, label: "Jevを使わない" },
 ];
 
-const INITIAL_STATUS = "ページを開いて「翻訳を開始」を押してください。";
+const INITIAL_STATUS = "ページを開いて「このページを翻訳」を押してください。";
+/** The user guide (GitHub Pages, built from docs/). */
+const GUIDE_URL = "https://s-hiraoku.github.io/page-translate-extension/";
 
 /** Which of the two modes that react to selecting text on the page is on. One value, so both can never be. */
-type PickMode = "off" | "page-click" | "selection";
+type PickMode = "off" | "page-click";
 
 const shortcutRows: Array<{ command: PanelCommand; label: string; short: string }> = [
   { command: "translate-page", label: "このページを翻訳", short: "翻訳" },
@@ -109,20 +111,16 @@ export function SidePanel() {
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
   /**
-   * Page-click mode (clicking translated text on the page selects its card) or selection
-   * translation (selecting text shows its translation in a tooltip). Both react to selecting
-   * text, so turning one on turns the other off in the same step.
+   * Page-click mode: clicking translated text on the page selects its card. It ends with the panel
+   * and with the page it belongs to. Selection translation is a setting instead (it also works with
+   * the panel closed), and the two are never on together.
    */
   const [pickMode, setPickMode] = useState<PickMode>("off");
   const pagePick = pickMode === "page-click";
-  const selectionMode = pickMode === "selection";
+  const selectionMode = settings.selectionAutoTranslate;
   const setPagePick = (value: boolean | ((on: boolean) => boolean)) => setPickMode((current) => {
     const on = typeof value === "function" ? value(current === "page-click") : value;
-    return on ? "page-click" : current === "page-click" ? "off" : current;
-  });
-  const setSelectionMode = (value: boolean | ((on: boolean) => boolean)) => setPickMode((current) => {
-    const on = typeof value === "function" ? value(current === "selection") : value;
-    return on ? "selection" : current === "selection" ? "off" : current;
+    return on ? "page-click" : "off";
   });
   /** Tab whose page the results on screen belong to; the panel watches it for navigation. */
   const [watchTabId, setWatchTabId] = useState<number | null>(null);
@@ -312,40 +310,11 @@ export function SidePanel() {
     return () => chrome.tabs.onActivated?.removeListener(onActivated);
   }, []);
 
-  // While selection translation is on, hold a port to the tab: it reports each selection, and the
-  // translation goes back to the page's tooltip. Closing the panel drops the port and ends the mode.
-  const translateSelectedRef = useRef<(id: number, text: string) => void>(() => undefined);
+  // Page-click mode and selection translation both react to selecting text: turning page-click
+  // on turns the selection setting off (the page also ignores selections while page-click is on).
   useEffect(() => {
-    if (!selectionMode) return;
-    let port: chrome.runtime.Port | null = null;
-    let cancelled = false;
-    void (async () => {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (cancelled || tab?.id === undefined) return;
-      boundTabRef.current = tab.id;
-      port = chrome.tabs.connect(tab.id, { name: SELECTION_PORT });
-      const held = port;
-      modePorts.current.add(held);
-      port.onMessage.addListener((message: SelectionEvent) => {
-        if (message.type === "selected") translateSelectedRef.current(message.id, message.text);
-      });
-      port.onDisconnect.addListener(() => {
-        void chrome.runtime.lastError;
-        modePorts.current.delete(held);
-        if (cancelled) return;
-        setSelectionMode(false);
-        reportDroppedPort("ページとの接続が切れたため、選択範囲翻訳を終了しました。");
-      });
-    })().catch((caught: unknown) => {
-      setSelectionMode(false);
-      setError(errorMessage(caught));
-    });
-    return () => {
-      cancelled = true;
-      if (port) modePorts.current.delete(port);
-      port?.disconnect();
-    };
-  }, [selectionMode]);
+    if (pagePick && settingsRef.current.selectionAutoTranslate) void persistSettings({ ...settingsRef.current, selectionAutoTranslate: false });
+  }, [pagePick]);
 
   // While page-click mode is on, hold a port to the tab. The page reports clicks on
   // translated text through it; closing the panel drops the port and ends the mode.
@@ -551,7 +520,6 @@ export function SidePanel() {
 
   /** Translations of selections already made, so selecting the same text again costs nothing. */
   const selectionCache = useRef(new Map<string, string>());
-  translateSelectedRef.current = (id, text) => void translateSelected(id, text);
 
   /** Translates selected text and hands the result to the page's tooltip (`id` names the tooltip). */
   async function translateSelected(id: number, text: string): Promise<void> {
@@ -597,13 +565,16 @@ export function SidePanel() {
     }
   }
 
+  /** The button turns the same setting as "translate as I select" in Settings and the right-click menu. */
   async function toggleSelectionMode(): Promise<void> {
     if (selectionMode) {
-      setSelectionMode(false);
+      await persistSettings({ ...settingsRef.current, selectionAutoTranslate: false });
       return;
     }
     setError("");
-    if (await ensureConsent()) setSelectionMode(true);
+    if (!(await ensureConsent())) return;
+    setPagePick(false);
+    await persistSettings({ ...settingsRef.current, selectionAutoTranslate: true });
   }
 
   async function loadShortcuts(): Promise<void> {
@@ -1015,7 +986,7 @@ export function SidePanel() {
             ))}
           </div>
           <p className="field-hint">
-            オンにすると、パネルを閉じていても、ページで文章を選ぶだけで、その場のツールチップに翻訳を表示します（DeepLだけを使います）。ページ上の右クリックメニューからも切り替えられます。
+            オンにすると、パネルを閉じていても、ページで文章を選ぶだけで、その場のツールチップに翻訳を表示します（DeepLだけを使います）。ページ上の右クリックメニューからも切り替えられます。拡張機能を更新した直後は、開いていたページを再読み込みしてください。
           </p>
 
           <h3 className="settings-section" id="cache-label">翻訳のキャッシュ</h3>
@@ -1160,7 +1131,7 @@ export function SidePanel() {
               </button>
             </div>
             {selectionMode && (
-              <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上で文章を選ぶと、その場に訳を表示します。Escで閉じます</p>
+              <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上で文章を選ぶと、その場に訳を表示します。パネルを閉じても続きます（Escでツールチップを閉じます）</p>
             )}
 
             <div className="status" role="status" aria-live="polite">
@@ -1249,6 +1220,12 @@ export function SidePanel() {
                 <li><span>2</span>{settings.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
                 <li><span>3</span>DeepLで翻訳</li>
               </ol>
+              {providerStatus && !providerStatus.providers.deepl && (
+                <p className="setup-hint">
+                  はじめに、DeepLのAPIキーを登録してください（TypeSafe Jevは、設定でオフにすれば不要です）。
+                  <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
+                </p>
+              )}
               {(shortcuts["translate-page"] || shortcuts["toggle-page-pick"]) && (
                 <p className="shortcut-hint">
                   {shortcutRows.filter((row) => shortcuts[row.command]).map((row) => (
@@ -1261,6 +1238,7 @@ export function SidePanel() {
 
           <footer className="panel-footer">
             <span className="privacy"><Icon name="shield" />{settings.useJev ? "翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信" : "翻訳時は本文をDeepLへ送信（Jevは不使用）"}</span>
+            <a className="text-button" href={GUIDE_URL} target="_blank" rel="noreferrer">使い方</a>
             {settings.displayMode === "inline" && translatedCount > 0 && (
               <button type="button" className="text-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>
                 <Icon name="restore" />原文に戻す
