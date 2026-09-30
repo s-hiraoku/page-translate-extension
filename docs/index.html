@@ -170,6 +170,10 @@
       <p>iframeの中、入力欄の中、PDFビューアでは使えません。また、2文字未満や、数字・記号だけの選択は翻訳しません。初めて使うときは、データ送信への同意が必要です。パネルを開いて、一度どれかの翻訳を試し、同意してください。</p>
     </details>
     <details>
+      <summary>拡張機能を更新したあと、選択範囲翻訳（自動）が動かない</summary>
+      <p>更新の前から開いていたページには、古い版の拡張機能が残っています。そのページを再読み込みしてください（ツールチップに再読み込みを求める案内が出ることもあります）。また、更新するとAPIキーが消えるので、設定でDeepLのキーをもう一度登録してください。パネルの「選択範囲翻訳」ボタンは、パネルを閉じるとオフになります。パネルを閉じたまま使うときは、設定か右クリックメニューの「選択したら自動で翻訳」をオンにしてください。</p>
+    </details>
+    <details>
       <summary>コネクタ（原文と結ぶ線）が出ない・ずれる</summary>
       <p>コネクタは、サイドパネルのカードを選んだときに出ます。出ないときやずれたときは、もう一度カードを選んでください。ページの内容が変わっていて原文が見つからないときは、もう一度ページを翻訳してください。</p>
     </details>
@@ -247,6 +251,7 @@
     <details><summary>Nothing happens, or “API key not set”</summary><p>Check that the DeepL key is registered in Settings. Keys are cleared when Chrome quits. With “Use Jev” on, a TypeSafe Jev key is needed too; otherwise choose “Don't use Jev”.</p></details>
     <details><summary>A shortcut does nothing</summary><p>If Settings shows “Not set”, another extension or Chrome itself uses that key. Assign another at <code>chrome://extensions/shortcuts</code>.</p></details>
     <details><summary>The selection tooltip does not appear</summary><p>It is not available in iframes, form fields or the PDF viewer, and selections under two characters or made only of digits and symbols are skipped. The first use needs your agreement to the data use.</p></details>
+    <details><summary>Automatic selection translation stops working after an update</summary><p>Pages that were open before the update still run the old version: reload them. An update also clears your API keys, so register the DeepL key again. The panel's “Selection translation” button turns off when the panel closes; to keep translating with the panel closed, turn on “Translate as I select” in Settings or the right-click menu.</p></details>
     <details><summary>The translation looks out of date</summary><p>A cached result is used. Press “Retranslate” above the cards, or turn the cache off in Settings.</p></details>
     <details><summary>Anything else</summary><p>Please open an issue on <a href="https://github.com/s-hiraoku/page-translate-extension/issues">GitHub</a>.</p></details>
 
