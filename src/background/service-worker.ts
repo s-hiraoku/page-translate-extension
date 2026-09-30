@@ -194,7 +194,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     // A page reports a selection while "translate as I select" is on. Only content scripts send this, and only then.
     case "SELECTION_FROM_PAGE": {
       const tabId = sender.tab?.id;
-      if (tabId === undefined || sender.id !== chrome.runtime.id || !(await readSettings()).selectionAutoTranslate) return undefined;
+      if (tabId === undefined || sender.id !== chrome.runtime.id || !(await readSettings()).selectionAutoTranslate) return { ok: false };
       await deliverSelection(tabId, message.id, message.text);
       return { ok: true };
     }
