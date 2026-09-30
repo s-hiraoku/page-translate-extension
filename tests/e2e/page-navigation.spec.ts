@@ -28,21 +28,19 @@ const call = (page: Page, name: "__emitWatch" | "__dropWatch") =>
   page.evaluate((fn) => (window as unknown as Record<string, (message?: unknown) => void>)[fn]({ type: "navigated" }), name);
 
 test.describe("closing the panel", () => {
-  for (const [label, selector] of [["page-click", PAGE_CLICK], ["selection", SELECTION]] as const) {
-    test(`turns ${label} mode off and disconnects from the page`, async ({ page }) => {
-      const errors = await openPanel(page);
-      await translate(page);
-      await page.locator(selector).click();
-      await expect(page.locator(selector)).toHaveAttribute("aria-pressed", "true");
-      const before = await page.evaluate(() => (window as unknown as { __disconnected?: number }).__disconnected ?? 0);
+  test("turns page-click mode off and disconnects from the page", async ({ page }) => {
+    const errors = await openPanel(page);
+    await translate(page);
+    await page.locator(PAGE_CLICK).click();
+    await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "true");
+    const before = await page.evaluate(() => (window as unknown as { __disconnected?: number }).__disconnected ?? 0);
 
-      await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
 
-      await expect(page.locator(selector)).toHaveAttribute("aria-pressed", "false");
-      await expect.poll(() => page.evaluate(() => (window as unknown as { __disconnected?: number }).__disconnected ?? 0)).toBeGreaterThan(before);
-      expect(errors).toEqual([]);
-    });
-  }
+    await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __disconnected?: number }).__disconnected ?? 0)).toBeGreaterThan(before);
+    expect(errors).toEqual([]);
+  });
 });
 
 test.describe("page-click and selection modes", () => {
@@ -77,28 +75,29 @@ test.describe("navigating the page", () => {
   test("does the same when the connection drops (full navigation or reload) and shows no error", async ({ page }) => {
     await openPanel(page);
     await translate(page);
-    await page.locator(SELECTION).click();
-    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "true");
+    await page.locator(PAGE_CLICK).click();
+    await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "true");
 
     await call(page, "__dropWatch");
 
     await expect(page.locator(".entry-card")).toHaveCount(0);
-    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(PAGE_CLICK)).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator("body")).toContainText(START_TEXT);
     // Give a deferred "connection lost" message time to appear; it must not.
     await page.waitForTimeout(500);
     await expect(page.locator(".error-banner")).toHaveCount(0);
   });
 
-  test("translating again turns selection mode off, since the results it works on are cleared", async ({ page }) => {
+  test("translating again leaves selection translation on: it is a setting, not tied to the results", async ({ page }) => {
     await openPanel(page);
     await translate(page);
     await page.locator(SELECTION).click();
     await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "true");
 
     await page.locator(".translate-button").click();
+    await expect(page.locator(".translate-button")).toBeEnabled();
 
-    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "true");
   });
 
   test("can translate again after returning to the start", async ({ page }) => {
@@ -138,7 +137,7 @@ test.describe("switching tabs", () => {
     page.evaluate((info) => (window as unknown as { __activateTab: (info: object) => void }).__activateTab(info), { tabId, windowId });
   const PANEL_WINDOW = PANEL_WINDOW_ID;
 
-  test("clears the translation and turns the modes off", async ({ page }) => {
+  test("clears the translation and turns page-click mode off", async ({ page }) => {
     const errors = await openPanel(page);
     await translate(page);
     await page.locator(PAGE_CLICK).click();
@@ -164,15 +163,14 @@ test.describe("switching tabs", () => {
     await expect.poll(() => count("__presenceClosed")).toBe(1);
   });
 
-  test("turns selection mode off when the tab changes, even without a translation", async ({ page }) => {
+  test("keeps selection translation on when the tab changes: it works on every page", async ({ page }) => {
     await openPanel(page);
     await page.locator(SELECTION).click();
     await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "true");
-    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __emitSelection?: unknown }).__emitSelection)).toBe("function");
 
     await activate(page, 99, PANEL_WINDOW);
 
-    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(SELECTION)).toHaveAttribute("aria-pressed", "true");
   });
 
   test("keeps everything when the same tab is activated again or another window changes tab", async ({ page }) => {

@@ -106,12 +106,13 @@
       <tr><th>使い方</th><th>やり方</th></tr>
       <tr><td><strong>1回だけ翻訳する</strong></td><td>文章を選んで、<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>（Macは <kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>）を押す。または、選んだ文章を右クリックして「選択範囲を翻訳」を選ぶ。</td></tr>
       <tr><td><strong>選ぶたびに自動で翻訳する</strong></td><td>ページ上で右クリックして「選択したら自動で翻訳」にチェックを入れる。または、設定の「選択したら自動で翻訳」を「オン」にする。初期値はオフです。</td></tr>
-      <tr><td><strong>サイドパネルのボタンで、オンにする</strong></td><td>パネルの「選択範囲翻訳」ボタンを押すと、パネルを開いているあいだだけオンになります（パネルを閉じるとオフ）。</td></tr>
+      <tr><td><strong>サイドパネルのボタンで、オンにする</strong></td><td>パネルの「選択範囲翻訳」ボタンは、上の「選択したら自動で翻訳」と同じ設定です。オンにすると、パネルを閉じても続きます。</td></tr>
     </table>
     <ul>
       <li>翻訳にはDeepLだけを使います（Jevは使いません）。</li>
       <li>翻訳先は、パネルの「日本語へ / 英語へ」に従います。すでに翻訳先の言語の文章は、翻訳しません。</li>
       <li>1回に翻訳できるのは5,000文字までです。</li>
+      <li>ページクリックとは同時にオンにできません。片方をオンにすると、もう片方はオフになります。</li>
       <li>iframeの中、入力欄の中、PDFビューアなどでは使えません。</li>
       <li>初めて使うときは、データ送信への同意が必要です。パネルを閉じているときは、ツールチップの案内に従って、パネルを開いて同意してください。</li>
     </ul>
@@ -171,7 +172,7 @@
     </details>
     <details>
       <summary>拡張機能を更新したあと、選択範囲翻訳（自動）が動かない</summary>
-      <p>更新の前から開いていたページには、古い版の拡張機能が残っています。そのページを再読み込みしてください（ツールチップに再読み込みを求める案内が出ることもあります）。また、更新するとAPIキーが消えるので、設定でDeepLのキーをもう一度登録してください。パネルの「選択範囲翻訳」ボタンは、パネルを閉じるとオフになります。パネルを閉じたまま使うときは、設定か右クリックメニューの「選択したら自動で翻訳」をオンにしてください。</p>
+      <p>更新の前から開いていたページには、古い版の拡張機能が残っています。そのページを再読み込みしてください（ツールチップに再読み込みを求める案内が出ることもあります）。また、更新するとAPIキーが消えるので、設定でDeepLのキーをもう一度登録してください。</p>
     </details>
     <details>
       <summary>コネクタ（原文と結ぶ線）が出ない・ずれる</summary>
@@ -230,9 +231,9 @@
     <ul>
       <li><strong>Once:</strong> select text and press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> (Mac: <kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>), or right-click the selection and choose “選択範囲を翻訳” (Translate selection).</li>
       <li><strong>Every time you select:</strong> tick “選択したら自動で翻訳” (Translate as I select) in the page's right-click menu, or set it to On in Settings. It is off by default.</li>
-      <li><strong>With the panel:</strong> the “Selection translation” button in the panel turns the mode on only while the panel is open.</li>
+      <li><strong>With the panel:</strong> the “Selection translation” button in the panel is the same setting as “Translate as I select”; it stays on after the panel is closed.</li>
     </ul>
-    <p>Only DeepL is used. Text already in the target language is not translated, and up to 5,000 characters can be translated at a time. It does not work inside iframes, form fields or the PDF viewer. The first time, you must agree to the data use; if the panel is closed, follow the hint in the tooltip and agree in the panel.</p>
+    <p>It cannot be on together with page click: turning one on turns the other off. Only DeepL is used. Text already in the target language is not translated, and up to 5,000 characters can be translated at a time. It does not work inside iframes, form fields or the PDF viewer. The first time, you must agree to the data use; if the panel is closed, follow the hint in the tooltip and agree in the panel.</p>
 
     <h2>Check your English writing</h2>
     <p>The “Writing” tab has two tools. “Check my English” shows what your English conveys (a back-translation), a model translation of what you meant compared with your sentence, and — with a paid DeepL key — a DeepL Write correction. “Japanese to English” turns what you write in Japanese into English, with its back-translation and, with a paid key, a version in the style you choose.</p>
@@ -251,7 +252,7 @@
     <details><summary>Nothing happens, or “API key not set”</summary><p>Check that the DeepL key is registered in Settings. Keys are cleared when Chrome quits. With “Use Jev” on, a TypeSafe Jev key is needed too; otherwise choose “Don't use Jev”.</p></details>
     <details><summary>A shortcut does nothing</summary><p>If Settings shows “Not set”, another extension or Chrome itself uses that key. Assign another at <code>chrome://extensions/shortcuts</code>.</p></details>
     <details><summary>The selection tooltip does not appear</summary><p>It is not available in iframes, form fields or the PDF viewer, and selections under two characters or made only of digits and symbols are skipped. The first use needs your agreement to the data use.</p></details>
-    <details><summary>Automatic selection translation stops working after an update</summary><p>Pages that were open before the update still run the old version: reload them. An update also clears your API keys, so register the DeepL key again. The panel's “Selection translation” button turns off when the panel closes; to keep translating with the panel closed, turn on “Translate as I select” in Settings or the right-click menu.</p></details>
+    <details><summary>Automatic selection translation stops working after an update</summary><p>Pages that were open before the update still run the old version: reload them. An update also clears your API keys, so register the DeepL key again.</p></details>
     <details><summary>The translation looks out of date</summary><p>A cached result is used. Press “Retranslate” above the cards, or turn the cache off in Settings.</p></details>
     <details><summary>Anything else</summary><p>Please open an issue on <a href="https://github.com/s-hiraoku/page-translate-extension/issues">GitHub</a>.</p></details>
 
