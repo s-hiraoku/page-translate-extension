@@ -129,28 +129,26 @@ test.describe("translating as text is selected, with the panel closed", () => {
     await expect.poll(async () => (await tooltipText(page)) ?? "").toContain("潮汐とは、海面の規則的な上昇と下降です。");
   });
 
-  test("does not leave \"translating…\" up when the page thinks the setting is on but it is off", async ({ page, send }) => {
+  test("shows nothing when the setting is off, even if the page was told it was on", async ({ page, send }) => {
     await page.goto("/fixtures/article.html");
     await send({ type: "UPDATE_FOCUS_ANCHOR", anchor: { screenY: 0 } });
-    // The page missed the change back to off.
     await send({ type: "SELECTION_AUTO_CHANGED", enabled: true });
 
     await selectWithMouse(page);
+    await page.waitForTimeout(800);
 
-    await expect.poll(() => tooltipText(page)).toContain("オフ");
+    expect(await tooltipText(page)).toBeNull();
   });
 
-  test("picks up a change it missed when the window gets focus again", async ({ page, driver, send }) => {
+  // Regression (v1.6.4): right after the setting was turned on, an open page kept ignoring selections
+  // until it was reloaded or got focus again, because it had missed the change.
+  test("works right after the setting is turned on, even if the page missed the change", async ({ page, driver, send }) => {
     await page.goto("/fixtures/article.html");
     await send({ type: "UPDATE_FOCUS_ANCHOR", anchor: { screenY: 0 } });
     await setAuto(driver, true, false);
-    await page.waitForTimeout(500);
     // The page missed the change and believes the setting is off.
     await send({ type: "SELECTION_AUTO_CHANGED", enabled: false });
-    await page.waitForTimeout(300);
 
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await page.waitForTimeout(500);
     await selectWithMouse(page);
 
     await expect.poll(() => tooltipText(page)).toContain("同意");

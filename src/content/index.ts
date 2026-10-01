@@ -96,8 +96,9 @@ function handlePanelMessage(message: { type: string }, sendResponse: (response: 
     return;
   }
   if (type === "SELECTION_AUTO_CHANGED") {
-    setSelectionAuto((message as unknown as SelectionAutoChanged).enabled);
-    sendResponse({ enabled: selectionAuto !== null });
+    // Turned off: take down a tooltip it left. Turning on needs nothing: each selection asks.
+    if (!(message as unknown as SelectionAutoChanged).enabled && !selectionMode) closeSelectionTooltip();
+    sendResponse({ ok: true });
     return;
   }
   if (type === "SELECTION_RESULT") {
@@ -944,7 +945,7 @@ function startSelectionMode(port: chrome.runtime.Port): void {
       // The panel is gone but its disconnect never reached this page: end the mode, and if
       // "translate as I select" is on, translate this selection without the panel.
       stopSelectionMode();
-      if (selectionAuto && !pagePick) requestAutoTranslation(selected);
+      if (!pagePick) translateIfAutoOn(selected);
     }
   });
   port.onDisconnect.addListener(() => {
@@ -954,65 +955,44 @@ function startSelectionMode(port: chrome.runtime.Port): void {
 }
 
 /**
- * "Translate as I select", from the settings or the context menu: works with the panel closed. The
- * service worker translates and the answer comes back as SELECTION_RESULT. It stays out of the way of
- * the panel's own selection mode and of page-click mode, which handle selections themselves.
+ * "Translate as I select", from the settings or the context menu: works with the panel closed. Every
+ * selection asks the service worker whether it is on (the setting lives there, and a page remembering
+ * it could miss a change — it did, right after the setting was turned on). The service worker
+ * translates and the answer comes back as SELECTION_RESULT. Page-click mode and the panel's own
+ * selection mode handle selections themselves, so this stays out of their way.
  */
-let selectionAuto: { dispose: () => void } | null = null;
+function translateIfAutoOn(selected: CurrentSelection): void {
+  try {
+    chrome.runtime.sendMessage({ type: "GET_SELECTION_AUTO" }).then((reply: { enabled?: boolean } | undefined) => {
+      if (reply?.enabled !== true || selectionMode || pagePick) return;
+      // Still the same selection? The reader may have clicked away while we asked.
+      const current = readCurrentSelection();
+      if (current?.text !== selected.text) return;
+      requestAutoTranslation(selected);
+    }).catch(() => undefined);
+  } catch {
+    // The extension was updated or reloaded: this page's script has lost its connection to it.
+  }
+}
 
 /** Shows the "translating" tooltip and asks the service worker to translate the selection. */
 function requestAutoTranslation(selected: CurrentSelection): void {
   const id = showSelectionTooltip(selected);
-  const fail = (message: string) => {
-    setSelectionAuto(false);
-    showNoticeTooltip(message);
-  };
   const reload = "拡張機能が更新されたため、このページでは翻訳できません。ページを再読み込みしてください。";
   try {
     chrome.runtime.sendMessage({ type: "SELECTION_FROM_PAGE", id, text: selected.text }).then((reply: { ok?: boolean } | undefined) => {
-      // The setting was turned off meanwhile: the answer will never come, so do not leave "translating…" up.
-      if (reply?.ok !== true) fail("選択したら自動で翻訳する設定がオフです。");
-    }).catch(() => fail(reload));
+      // Turned off in the meantime: the answer will never come, so do not leave "translating…" up.
+      if (reply?.ok !== true && selectionUi?.id === id) closeSelectionTooltip();
+    }).catch(() => showNoticeTooltip(reload));
   } catch {
-    // The extension was updated or reloaded: this page's script has lost its connection to it.
-    fail(reload);
+    showNoticeTooltip(reload);
   }
 }
 
-function setSelectionAuto(enabled: boolean): void {
-  if (enabled === (selectionAuto !== null)) return;
-  if (!enabled) {
-    selectionAuto?.dispose();
-    selectionAuto = null;
-    if (!selectionMode) closeSelectionTooltip();
-    return;
-  }
-  const stop = watchSelection((selected) => {
-    if (selectionMode || pagePick) return;
-    requestAutoTranslation(selected);
-  });
-  selectionAuto = { dispose: stop };
-}
-
-/** Asks the extension whether "translate as I select" is on; retried while the service worker starts up. */
-function syncSelectionAuto(retries = 2): void {
-  try {
-    chrome.runtime.sendMessage({ type: "GET_SELECTION_AUTO" }).then((reply: { enabled?: boolean } | undefined) => {
-      setSelectionAuto(reply?.enabled === true);
-    }).catch(() => {
-      if (retries > 0) window.setTimeout(() => syncSelectionAuto(retries - 1), 1500);
-    });
-  } catch {
-    // Context invalidated: nothing to ask.
-  }
-}
-
-// A page opened while the setting is on translates selections right away. Coming back to the tab or
-// window asks again, so a change this page missed (its tab was discarded, the service worker was
-// restarting) is picked up.
-syncSelectionAuto();
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncSelectionAuto(0); });
-window.addEventListener("focus", () => syncSelectionAuto(0));
+watchSelection((selected) => {
+  if (selectionMode || pagePick) return;
+  translateIfAutoOn(selected);
+});
 
 function stopSelectionMode(): void {
   selectionMode?.dispose();
