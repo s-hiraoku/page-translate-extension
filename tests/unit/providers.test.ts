@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPage } from "../../src/background/providers";
+import { classifyPage, missingKeyMessage } from "../../src/background/providers";
 import { resolveDeepLPlan, type CandidateSegment } from "../../src/shared/types";
 
 let next = 0;
@@ -57,5 +57,27 @@ describe("resolveDeepLPlan", () => {
   it("lets a manual choice override the key", () => {
     expect(resolveDeepLPlan("free", "0123-abcd")).toBe("free");
     expect(resolveDeepLPlan("pro", "0123-abcd:fx")).toBe("pro");
+  });
+});
+
+describe("missingKeyMessage", () => {
+  it("asks for the DeepL key first when no key is registered, and mentions translating without Jev", () => {
+    const message = missingKeyMessage({ jev: false, deepl: false })!;
+    expect(message.startsWith("設定画面でDeepLのAPIキーを登録してください。")).toBe(true);
+    expect(message).toContain("Jevを使わない");
+  });
+
+  it("asks for the DeepL key when only Jev's is registered", () => {
+    expect(missingKeyMessage({ jev: true, deepl: false })).toMatch(/^設定画面でDeepLのAPIキーを登録/);
+  });
+
+  it("offers turning Jev off when only Jev's key is missing", () => {
+    const message = missingKeyMessage({ jev: false, deepl: true })!;
+    expect(message).toContain("TypeSafe JevのAPIキーが未登録");
+    expect(message).toContain("Jevを使わない");
+  });
+
+  it("says nothing when both keys are registered", () => {
+    expect(missingKeyMessage({ jev: true, deepl: true })).toBeNull();
   });
 });
