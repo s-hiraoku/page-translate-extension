@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installChromeMock, pressShortcut, type MockOptions } from "./support/chrome-mock";
+import { installChromeMock, pressShortcut, sentTypes, type MockOptions } from "./support/chrome-mock";
 
 const PANEL = "/src/sidepanel/index.html";
 
@@ -16,6 +16,9 @@ async function openPanel(page: Page, options: MockOptions = {}): Promise<string[
 type Sent = Array<{ type: string; id?: number; text?: string; note?: string; error?: string; targetLang?: string }>;
 const sent = (page: Page, type: string) => page.evaluate((wanted) => (window as unknown as { __sent: Sent }).__sent.filter((message) => message.type === wanted), type);
 const selectionToggle = (page: Page) => page.locator(".selection-toggle");
+/** The page tells the panel the reader selected this text. */
+const selected = (page: Page, id: number, text: string) => page.evaluate(({ id, text }) =>
+  (window as unknown as { __emitSelection: (event: unknown) => void }).__emitSelection({ type: "selected", id, text }), { id, text });
 const overrideMessage = (page: Page, type: string, reply: unknown) => page.evaluate(({ type, reply }) => {
   (window as unknown as { __override: (type: string, handler: () => unknown) => void }).__override(type, () => reply);
 }, { type, reply });
@@ -38,34 +41,18 @@ test.describe("selection translation buttons", () => {
     await expect(selectionToggle(page)).toHaveAttribute("title", /Alt\+Shift\+S/);
   });
 
-  const storedAuto = (page: Page) => page.evaluate(async () => {
-    const chromeApi = (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, { selectionAutoTranslate?: boolean }>> } } } }).chrome;
-    return (await chromeApi.storage.local.get("pageTranslateSettings")).pageTranslateSettings?.selectionAutoTranslate;
-  });
-
-  test("turning it on saves the setting that also works with the panel closed, turning it off clears it", async ({ page }) => {
+  test("turning it on connects to the page, turning it off disconnects", async ({ page }) => {
     const errors = await openPanel(page);
     await selectionToggle(page).click();
 
     await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "true");
-    await expect.poll(() => storedAuto(page)).toBe(true);
-    await expect(page.locator(".pick-note")).toContainText("パネルを閉じても続きます");
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __connected?: string[] }).__connected)).toEqual(["selection-translate"]);
+    await expect(page.locator(".pick-note")).toContainText("文章を選ぶと");
 
     await selectionToggle(page).click();
     await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "false");
-    await expect.poll(() => storedAuto(page)).toBe(false);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __disconnected?: number }).__disconnected)).toBe(1);
     expect(errors).toEqual([]);
-  });
-
-  test("stays on when the panel is closed", async ({ page }) => {
-    await openPanel(page);
-    await selectionToggle(page).click();
-    await expect.poll(() => storedAuto(page)).toBe(true);
-
-    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
-
-    await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "true");
-    expect(await storedAuto(page)).toBe(true);
   });
 
   test("asks for consent before the first use and stays off if the reader declines", async ({ page }) => {
@@ -96,6 +83,88 @@ test.describe("selection translation buttons", () => {
     await selectionToggle(page).click();
     await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".pick-toggle").first()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("ends and says why when the page connection drops", async ({ page }) => {
+    await openPanel(page);
+    await selectionToggle(page).click();
+    await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __dropSelectionPort?: unknown }).__dropSelectionPort)).toBe("function");
+
+    await page.evaluate(() => (window as unknown as { __dropSelectionPort: () => void }).__dropSelectionPort());
+
+    await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(".error-banner")).toContainText("選択範囲翻訳を終了しました");
+  });
+});
+
+test.describe("translating a selection", () => {
+  async function turnOn(page: Page): Promise<void> {
+    await selectionToggle(page).click();
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __emitSelection?: unknown }).__emitSelection)).toBe("function");
+  }
+
+  test("translates what the page reports and sends it back for the tooltip", async ({ page }) => {
+    await openPanel(page);
+    await turnOn(page);
+    await selected(page, 7, "The tide rises twice a day.");
+
+    await expect.poll(async () => (await sent(page, "SELECTION_RESULT")).length).toBe(1);
+    expect(await sent(page, "TRANSLATE_SELECTION")).toMatchObject([{ text: "The tide rises twice a day.", targetLang: "JA" }]);
+    expect(await sent(page, "SELECTION_RESULT")).toMatchObject([{ id: 7, text: "訳:The tide rises twice a day." }]);
+    // Selections are not page translation: no scan, no Jev.
+    expect(await sentTypes(page)).not.toContain("CLASSIFY_CANDIDATES");
+    expect(await sentTypes(page)).not.toContain("SCAN_ACTIVE_TAB");
+  });
+
+  test("uses the chosen English variant when translating into English", async ({ page }) => {
+    await openPanel(page, { settings: { targetLanguage: "EN", englishVariant: "EN-GB" } });
+    await turnOn(page);
+    await selected(page, 1, "潮は一日に二回満ち引きします。");
+
+    await expect.poll(async () => (await sent(page, "TRANSLATE_SELECTION")).length).toBe(1);
+    expect(await sent(page, "TRANSLATE_SELECTION")).toMatchObject([{ targetLang: "EN-GB" }]);
+  });
+
+  test("says so, without calling DeepL, when the text is already in the target language", async ({ page }) => {
+    await openPanel(page);
+    await turnOn(page);
+    await selected(page, 2, "これはすでに日本語で書かれた文章です。");
+
+    await expect.poll(async () => (await sent(page, "SELECTION_RESULT")).length).toBe(1);
+    expect(await sent(page, "TRANSLATE_SELECTION")).toEqual([]);
+    expect(await sent(page, "SELECTION_RESULT")).toMatchObject([{ id: 2, note: "選択した文章は、すでに日本語です。" }]);
+  });
+
+  test("selecting the same text again does not call DeepL again", async ({ page }) => {
+    await openPanel(page);
+    await turnOn(page);
+    await selected(page, 1, "Same sentence twice.");
+    await expect.poll(async () => (await sent(page, "SELECTION_RESULT")).length).toBe(1);
+    await selected(page, 2, "Same sentence twice.");
+
+    await expect.poll(async () => (await sent(page, "SELECTION_RESULT")).length).toBe(2);
+    expect(await sent(page, "TRANSLATE_SELECTION")).toHaveLength(1);
+    expect(await sent(page, "SELECTION_RESULT")).toMatchObject([{ id: 1, text: "訳:Same sentence twice." }, { id: 2, text: "訳:Same sentence twice." }]);
+  });
+
+  test("puts a translation failure into the tooltip", async ({ page }) => {
+    await openPanel(page);
+    await turnOn(page);
+    await overrideMessage(page, "TRANSLATE_SELECTION", { error: "DeepLの利用上限に達しました。" });
+    await selected(page, 3, "This will fail to translate.");
+
+    await expect.poll(async () => (await sent(page, "SELECTION_RESULT")).length).toBe(1);
+    expect(await sent(page, "SELECTION_RESULT")).toMatchObject([{ id: 3, error: "DeepLの利用上限に達しました。" }]);
+  });
+
+  test("works without translating the page first, and without an open card list", async ({ page }) => {
+    await openPanel(page);
+    await turnOn(page);
+    await selected(page, 4, "Nothing was scanned before this.");
+
+    await expect.poll(async () => (await sent(page, "SELECTION_RESULT")).length).toBe(1);
+    await expect(page.locator(".entry-card")).toHaveCount(0);
   });
 });
 
@@ -197,5 +266,35 @@ test.describe("translate as I select (works with the panel closed)", () => {
     }, SETTINGS_KEY);
 
     await expect(auto(page).getByRole("radio", { name: "オン" })).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+test.describe("the panel button and the \"translate as I select\" setting are separate switches", () => {
+  const storedAuto = (page: Page) => page.evaluate(async () => {
+    const chromeApi = (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, { selectionAutoTranslate?: boolean }>> } } } }).chrome;
+    return (await chromeApi.storage.local.get("pageTranslateSettings")).pageTranslateSettings?.selectionAutoTranslate === true;
+  });
+
+  test("the button does not change the setting", async ({ page }) => {
+    await openPanel(page);
+    await selectionToggle(page).click();
+    await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "true");
+    await page.waitForTimeout(200);
+    expect(await storedAuto(page)).toBe(false);
+  });
+
+  test("the setting does not press the button", async ({ page }) => {
+    await openPanel(page, { settings: { selectionAutoTranslate: true } });
+    await expect(selectionToggle(page)).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("page-click mode leaves the setting on", async ({ page }) => {
+    await openPanel(page, { settings: { selectionAutoTranslate: true } });
+    await page.locator(".translate-button").click();
+    await expect(page.locator(".translate-button")).toBeEnabled();
+    await page.locator(".pick-toggle").first().click();
+    await expect(page.locator(".pick-toggle").first()).toHaveAttribute("aria-pressed", "true");
+    await page.waitForTimeout(200);
+    expect(await storedAuto(page)).toBe(true);
   });
 });
