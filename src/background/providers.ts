@@ -31,14 +31,32 @@ export async function clearProviderKeys(): Promise<ProviderStatus> {
   return providerStatus();
 }
 
+/**
+ * What to tell the reader when page translation (with Jev) lacks a key. DeepL does the translating,
+ * so it comes first; Jev only picks the text and can be turned off.
+ */
+export function missingKeyMessage(registered: { jev: boolean; deepl: boolean }): string | null {
+  if (!registered.deepl) {
+    return registered.jev
+      ? "設定画面でDeepLのAPIキーを登録してください。翻訳にはDeepLのキーが必要です。"
+      : "設定画面でDeepLのAPIキーを登録してください。翻訳にはDeepLのキーが必要です。TypeSafe Jevのキーがない場合は、設定の「翻訳する本文の判定」で「Jevを使わない」を選べば、DeepLのキーだけで翻訳できます。";
+  }
+  if (!registered.jev) {
+    return "TypeSafe JevのAPIキーが未登録です。設定画面で登録するか、「翻訳する本文の判定」で「Jevを使わない」を選んでください（DeepLのキーだけで翻訳できます）。";
+  }
+  return null;
+}
+
 export async function classifyCandidates(
   segments: CandidateSegment[],
   targetLanguage: TargetLanguage,
   pageTitle = "",
   pageInfo: { mainContentDetected: boolean; articleTitle: string } = { mainContentDetected: false, articleTitle: "" },
 ): Promise<DecisionResult> {
-  const { typesafeApiKey } = await readProviderKeys();
-  if (!typesafeApiKey) throw new Error("設定画面でTypeSafe JevのAPIキーを登録してください。");
+  const keys = await readProviderKeys();
+  const missing = missingKeyMessage({ jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey) });
+  if (missing) throw new Error(missing);
+  const { typesafeApiKey } = keys;
   validateSegments(segments);
 
   // Not every page is a single article. Landing pages are short headlines and taglines;
