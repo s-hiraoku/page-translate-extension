@@ -3,7 +3,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "Page Translate",
-  version: "1.6.4",
+  version: "1.6.5",
   description: "Translate English and Japanese web pages with Jev and DeepL, with translations linked to their source.",
   minimum_chrome_version: "116",
   permissions: ["contextMenus", "sidePanel", "storage"],
