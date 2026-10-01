@@ -94,7 +94,14 @@ export interface ExtensionSettings {
   cacheTtlHours: number;
   /** Translate text as it is selected on any page, with the side panel closed too. */
   selectionAutoTranslate: boolean;
+  /**
+   * Who translates: DeepL (sent over the network), or Chrome's built-in translator (Chrome 138+
+   * desktop, runs on this device; experimental, used from the side panel only for now).
+   */
+  translationProvider: TranslationProvider;
 }
+
+export type TranslationProvider = "deepl" | "chrome";
 
 export const SETTINGS_KEY = "pageTranslateSettings";
 export const PROVIDER_KEYS_KEY = "pageTranslateProviderKeys";
@@ -113,6 +120,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   cacheEnabled: true,
   cacheTtlHours: 3,
   selectionAutoTranslate: false,
+  translationProvider: "deepl",
 };
 
 export type ExtensionMessage =

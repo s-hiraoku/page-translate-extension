@@ -35,7 +35,10 @@ export async function clearProviderKeys(): Promise<ProviderStatus> {
  * What to tell the reader when page translation (with Jev) lacks a key. DeepL does the translating,
  * so it comes first; Jev only picks the text and can be turned off.
  */
-export function missingKeyMessage(registered: { jev: boolean; deepl: boolean }): string | null {
+export function missingKeyMessage(registered: { jev: boolean; deepl: boolean }, needsDeepl = true): string | null {
+  if (!needsDeepl) {
+    return registered.jev ? null : "TypeSafe JevのAPIキーが未登録です。設定画面で登録するか、「翻訳する本文の判定」で「Jevを使わない」を選んでください。";
+  }
   if (!registered.deepl) {
     return registered.jev
       ? "設定画面でDeepLのAPIキーを登録してください。翻訳にはDeepLのキーが必要です。"
@@ -53,8 +56,9 @@ export async function classifyCandidates(
   pageTitle = "",
   pageInfo: { mainContentDetected: boolean; articleTitle: string } = { mainContentDetected: false, articleTitle: "" },
 ): Promise<DecisionResult> {
-  const keys = await readProviderKeys();
-  const missing = missingKeyMessage({ jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey) });
+  const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
+  // With Chrome's built-in translator, DeepL is not part of page translation.
+  const missing = missingKeyMessage({ jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey) }, settings.translationProvider !== "chrome");
   if (missing) throw new Error(missing);
   const { typesafeApiKey } = keys;
   validateSegments(segments);

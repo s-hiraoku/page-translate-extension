@@ -80,4 +80,11 @@ describe("missingKeyMessage", () => {
   it("says nothing when both keys are registered", () => {
     expect(missingKeyMessage({ jev: true, deepl: true })).toBeNull();
   });
+
+  it("with Chrome's translator, asks only for Jev's key", () => {
+    expect(missingKeyMessage({ jev: true, deepl: false }, false)).toBeNull();
+    const message = missingKeyMessage({ jev: false, deepl: false }, false)!;
+    expect(message).toContain("TypeSafe JevのAPIキーが未登録");
+    expect(message).not.toContain("DeepL");
+  });
 });
