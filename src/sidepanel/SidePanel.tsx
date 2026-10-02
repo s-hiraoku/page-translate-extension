@@ -135,6 +135,28 @@ export function SidePanel() {
   const [watchTabId, setWatchTabId] = useState<number | null>(null);
   // The tab the results and modes belong to; switching to another tab in this window clears them.
   const boundTabRef = useRef<number | null>(null);
+  const panelTopRef = useRef<HTMLDivElement | null>(null);
+  // Which settings explanations are unfolded; they start folded each time the settings open.
+  const [openHelp, setOpenHelp] = useState<ReadonlySet<string>>(() => new Set());
+  const help: HelpState = {
+    isOpen: (id) => openHelp.has(id),
+    toggle: (id) => setOpenHelp((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    }),
+  };
+
+  // The results heading sticks right under the fixed controls, whose height changes with notes and modes.
+  useEffect(() => {
+    const top = panelTopRef.current;
+    if (!top) return;
+    const update = () => document.documentElement.style.setProperty("--panel-top-height", `${top.offsetHeight}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(top);
+    return () => observer.disconnect();
+  }, []);
   /** Set once the stored settings are read, so nothing acts on the defaults in the meantime. */
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   /** What the last run took from the translation cache, shown under the status. */
@@ -984,6 +1006,8 @@ export function SidePanel() {
 
   return (
     <main className="panel-shell">
+      {/* Everything up to the status line stays put while the results scroll. */}
+      <div className="panel-top" ref={panelTopRef}>
       <header className="panel-header">
         <img className="brand-mark" src="/icons/icon48.png" alt="" width="32" height="32" />
         <div className="brand-copy">
@@ -995,189 +1019,13 @@ export function SidePanel() {
           type="button"
           aria-label={settingsOpen ? "翻訳画面に戻る" : "設定を開く"}
           aria-pressed={settingsOpen}
-          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) { void checkProviders(); void loadShortcuts(); void refreshCacheInfo(); } }}
+          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) { setOpenHelp(new Set()); void checkProviders(); void loadShortcuts(); void refreshCacheInfo(); } }}
         >
           <Icon name="settings" />
         </button>
       </header>
 
-      {settingsOpen ? (
-        <section className="settings-page" aria-labelledby="settings-title">
-          <button className="text-button settings-back" type="button" onClick={() => setSettingsOpen(false)}>
-            <Icon name="back" />翻訳画面に戻る
-          </button>
-          <p className="eyebrow">Settings</p>
-          <h2 id="settings-title">設定</h2>
-          <p className="settings-intro">表示テーマと、翻訳に使うサービスを設定します。翻訳にはDeepLを使います。翻訳する本文の判定にTypeSafe Jevを使うかどうかも選べます。</p>
-
-          <h3 className="settings-section" id="theme-label">表示テーマ</h3>
-          <div className="mode-switch theme-switch" role="radiogroup" aria-labelledby="theme-label">
-            {themeOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={settings.theme === option.value}
-                className={settings.theme === option.value ? "active" : ""}
-                onClick={() => void persistSettings({ ...settings, theme: option.value })}
-              >
-                <Icon name={option.icon} />{option.label}
-              </button>
-            ))}
-          </div>
-
-          <h3 className="settings-section">キーボードショートカット</h3>
-          <dl className="shortcut-list">
-            {shortcutRows.map((row) => (
-              <div key={row.command}>
-                <dt>{row.label}</dt>
-                <dd>{shortcuts[row.command] ? <kbd>{shortcuts[row.command]}</kbd> : <span className="badge missing">未設定</span>}</dd>
-              </div>
-            ))}
-          </dl>
-          <button className="text-button" type="button" onClick={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })}>
-            <Icon name="settings" />ショートカットを変更
-          </button>
-          <p className="field-hint">Chromeの拡張機能のショートカット設定で変更できます。ほかの拡張機能と重なっているキーは割り当てられず「未設定」になります。</p>
-
-          <h3 className="settings-section" id="provider-label">翻訳に使うサービス</h3>
-          <div className="mode-switch" role="radiogroup" aria-labelledby="provider-label">
-            {([
-              { value: "deepl", label: "DeepL" },
-              { value: "chrome", label: "Chrome内蔵" },
-            ] as const).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={applied.translationProvider === option.value}
-                className={applied.translationProvider === option.value ? "active" : ""}
-                disabled={option.value === "chrome" && !chromeSupported}
-                onClick={() => void persistSettings({ ...settings, translationProvider: option.value })}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <p className="field-hint">
-            {!chromeSupported
-              ? "このChromeでは内蔵の翻訳を使えないため、DeepLで翻訳します（Chrome内蔵の翻訳には、パソコン版のChrome 138以降が必要です）。"
-              : applied.translationProvider === "chrome"
-                ? "Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。英作文はDeepLを使います。"
-                : "DeepLで翻訳します。DeepLのAPIキーが必要です。"}
-          </p>
-
-          <h3 className="settings-section" id="jev-label">翻訳する本文の判定</h3>
-          <div className="mode-switch" role="radiogroup" aria-labelledby="jev-label">
-            {jevOptions.map((option) => (
-              <button
-                key={String(option.value)}
-                type="button"
-                role="radio"
-                aria-checked={settings.useJev === option.value}
-                className={settings.useJev === option.value ? "active" : ""}
-                onClick={() => void persistSettings({ ...settings, useJev: option.value })}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <p className="field-hint">
-            {settings.useJev
-              ? "ページ側のルールで除いた残りをJevが確認し、本文だけを翻訳します。"
-              : "Jevを使わず、ページ側のルールで除いた残りをすべて翻訳します。JevのAPIキーは不要です。"}
-            {settings.useJev && providerStatus && !providerStatus.providers.jev && "（JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します。）"}
-          </p>
-
-          <h3 className="settings-section" id="selection-auto-label">選択したら自動で翻訳</h3>
-          <div className="mode-switch" role="radiogroup" aria-labelledby="selection-auto-label">
-            {([true, false] as const).map((value) => (
-              <button
-                key={String(value)}
-                type="button"
-                role="radio"
-                aria-checked={settings.selectionAutoTranslate === value}
-                className={settings.selectionAutoTranslate === value ? "active" : ""}
-                onClick={() => void changeSelectionAuto(value)}
-              >
-                {value ? "オン" : "オフ"}
-              </button>
-            ))}
-          </div>
-          <p className="field-hint">
-            オンにすると、パネルを閉じていても、ページで文章を選ぶだけで、その場のツールチップに翻訳を表示します（DeepLだけを使います）。翻訳画面の「選択範囲翻訳」ボタンは、パネルを開いているあいだだけ動く別のスイッチです。どちらかがオンなら翻訳します。ページ上の右クリックメニューからも切り替えられます。拡張機能を更新した直後は、開いていたページを再読み込みしてください。
-          </p>
-
-          <h3 className="settings-section" id="cache-label">翻訳のキャッシュ</h3>
-          <div className="mode-switch" role="radiogroup" aria-labelledby="cache-label">
-            {([true, false] as const).map((value) => (
-              <button
-                key={String(value)}
-                type="button"
-                role="radio"
-                aria-checked={settings.cacheEnabled === value}
-                className={settings.cacheEnabled === value ? "active" : ""}
-                onClick={() => void persistSettings({ ...settings, cacheEnabled: value })}
-              >
-                {value ? "保存する" : "保存しない"}
-              </button>
-            ))}
-          </div>
-          {settings.cacheEnabled && (
-            <>
-              <label className="field-label" htmlFor="cache-ttl">保存する時間</label>
-              <select id="cache-ttl" className="field" value={settings.cacheTtlHours} onChange={(event) => void persistSettings({ ...settings, cacheTtlHours: Number(event.target.value) })}>
-                {[...CACHE_TTL_HOURS].sort((a, b) => a - b).map((hours) => <option key={hours} value={hours}>{hours}時間</option>)}
-              </select>
-            </>
-          )}
-          <p className="field-hint">
-            {settings.cacheEnabled
-              ? "翻訳したページの結果を、この端末の拡張機能の中だけに保存し、同じページを開いたときに再利用します。ページの本文が変わっていた部分は翻訳し直します。外部へは送信しません。"
-              : "翻訳結果を保存しません。保存済みの内容は削除しました。"}
-          </p>
-          {settings.cacheEnabled && (
-            <button className="text-button" type="button" onClick={() => void clearCache()} disabled={cacheInfo.pages === 0}>
-              <Icon name="trash" />キャッシュを削除（{cacheInfo.pages}ページ）
-            </button>
-          )}
-
-          <h3 className="settings-section">翻訳サービス</h3>
-          <div className={`provider-card ${settings.useJev ? "" : "unused"}`}>
-            <div className="provider-card-heading">
-              <div><h3>TypeSafe Jev</h3><p>{settings.useJev ? "ページから翻訳する本文を選びます。" : "現在は使わない設定です。"}</p></div>
-              <span className={`badge ${providerStatus?.providers.jev ? "ready" : "missing"}`}>{providerStatus?.providers.jev ? "登録済み" : "未設定"}</span>
-            </div>
-            <label className="field-label" htmlFor="typesafe-api-key">APIキー</label>
-            <input id="typesafe-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={typesafeApiKey} onChange={(event) => setTypesafeApiKey(event.target.value)} placeholder={providerStatus?.providers.jev ? "登録済み · 変更時だけ入力" : "TypeSafe JevのAPIキー"} />
-          </div>
-
-          <div className="provider-card">
-            <div className="provider-card-heading">
-              <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
-              <span className={`badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "登録済み" : "未設定"}</span>
-            </div>
-            <label className="field-label" htmlFor="deepl-endpoint">接続先</label>
-            <select id="deepl-endpoint" className="field" value={settings.deeplEndpoint} onChange={(event) => void changeDeepLEndpoint(event.target.value as DeepLEndpoint)}>
-              <option value="auto">自動（キーから判定）</option>
-              <option value="free">無料プラン（api-free.deepl.com）</option>
-              <option value="pro">有料プラン（api.deepl.com）</option>
-            </select>
-            <p className="field-hint">{deeplEndpointHint(settings.deeplEndpoint, providerStatus?.deeplPlan ?? null)}</p>
-            <label className="field-label" htmlFor="deepl-api-key">APIキー</label>
-            <input id="deepl-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={deeplApiKey} onChange={(event) => setDeeplApiKey(event.target.value)} placeholder={providerStatus?.providers.deepl ? "登録済み · 変更時だけ入力" : "DeepL APIキー"} />
-          </div>
-
-          {error && <div className="error-banner" role="alert"><Icon name="alert" />{error}</div>}
-          <button className="button primary block" type="button" onClick={() => void saveProviderKeys()} disabled={savingKeys}>
-            <Icon name="key" />{savingKeys ? "保存しています…" : "APIキーを保存"}
-          </button>
-          <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl}>
-            <Icon name="trash" />保存中のAPIキーを削除
-          </button>
-          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe JevまたはDeepLへ直接送信します。</p>
-        </section>
-      ) : (
+      {!settingsOpen && (
         <>
           <div className="view-tabs" role="tablist" aria-label="機能">
             <button type="button" role="tab" aria-selected={view === "translate"} className={view === "translate" ? "active" : ""} onClick={() => setView("translate")}>
@@ -1201,11 +1049,7 @@ export function SidePanel() {
               <button type="button" className="text-button" onClick={() => { setComposeHint(false); setSettingsOpen(true); }}><Icon name="key" />設定を開く</button>
             </p>
           )}
-          {/* Kept mounted so drafts survive switching tabs. */}
-          <div className="compose-view" hidden={view !== "compose"}>
-            <Composer settings={settings} deeplPlan={providerStatus?.deeplPlan ?? null} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
-          </div>
-          {view === "translate" && (<>
+          {view === "translate" && (
           <section className="controls">
             <div className="page-context">
               <span className="favicon-dot" aria-hidden="true">{pageUrl ? pageUrl.replace(/^www\./, "").slice(0, 1).toUpperCase() : <Icon name="inline" />}</span>
@@ -1267,6 +1111,193 @@ export function SidePanel() {
               <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上で文章を選ぶと、その場に訳を表示します。パネルを閉じるとオフになります</p>
             )}
 
+          </section>
+          )}
+        </>
+      )}
+      </div>
+
+      {settingsOpen ? (
+        <section className="settings-page" aria-labelledby="settings-title">
+          <button className="text-button settings-back" type="button" onClick={() => setSettingsOpen(false)}>
+            <Icon name="back" />翻訳画面に戻る
+          </button>
+          <p className="eyebrow">Settings</p>
+          <h2 id="settings-title">設定</h2>
+
+          <h3 className="settings-section" id="theme-label">表示テーマ</h3>
+          <div className="mode-switch theme-switch" role="radiogroup" aria-labelledby="theme-label">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={settings.theme === option.value}
+                className={settings.theme === option.value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, theme: option.value })}
+              >
+                <Icon name={option.icon} />{option.label}
+              </button>
+            ))}
+          </div>
+
+          <SettingHeading id="shortcut-label" label="キーボードショートカット" help={help}>
+            Chromeの拡張機能のショートカット設定で変更できます。ほかの拡張機能と重なっているキーは割り当てられず「未設定」になります。
+          </SettingHeading>
+          <dl className="shortcut-list">
+            {shortcutRows.map((row) => (
+              <div key={row.command}>
+                <dt>{row.label}</dt>
+                <dd>{shortcuts[row.command] ? <kbd>{shortcuts[row.command]}</kbd> : <span className="badge missing">未設定</span>}</dd>
+              </div>
+            ))}
+          </dl>
+          <button className="text-button" type="button" onClick={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })}>
+            <Icon name="settings" />ショートカットを変更
+          </button>
+
+          <SettingHeading id="provider-label" label="翻訳に使うサービス" help={help}>
+            <b>Chrome内蔵</b>：Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。パソコン版のChrome 138以降で使えます。<br />
+            <b>DeepL</b>：DeepLで翻訳します。DeepLのAPIキーが必要です。<br />
+            英作文は、どちらを選んでもDeepLを使います。
+          </SettingHeading>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="provider-label">
+            {([
+              { value: "deepl", label: "DeepL" },
+              { value: "chrome", label: "Chrome内蔵" },
+            ] as const).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={applied.translationProvider === option.value}
+                className={applied.translationProvider === option.value ? "active" : ""}
+                disabled={option.value === "chrome" && !chromeSupported}
+                onClick={() => void persistSettings({ ...settings, translationProvider: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {!chromeSupported && (
+            <p className="setting-alert"><Icon name="alert" />このChromeでは内蔵の翻訳を使えないため、DeepLで翻訳します（パソコン版のChrome 138以降が必要です）。</p>
+          )}
+
+          <SettingHeading id="jev-label" label="翻訳する本文の判定" help={help}>
+            <b>Jevを使う</b>：ページ側のルールで除いた残りをTypeSafe Jevが確認し、本文だけを翻訳します。JevのAPIキーが必要です。<br />
+            <b>Jevを使わない</b>：ページ側のルールで除いた残りをすべて翻訳します。
+          </SettingHeading>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="jev-label">
+            {jevOptions.map((option) => (
+              <button
+                key={String(option.value)}
+                type="button"
+                role="radio"
+                aria-checked={settings.useJev === option.value}
+                className={settings.useJev === option.value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, useJev: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {settings.useJev && providerStatus && !providerStatus.providers.jev && (
+            <p className="setting-alert"><Icon name="alert" />JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します。</p>
+          )}
+
+          <SettingHeading id="selection-auto-label" label="選択したら自動で翻訳" help={help}>
+            オンにすると、パネルを閉じていても、ページで文章を選ぶだけで、その場のツールチップに翻訳を表示します。翻訳画面の「選択範囲翻訳」ボタンは、パネルを開いているあいだだけ動く別のスイッチで、どちらかがオンなら翻訳します。ページ上の右クリックメニューからも切り替えられます。拡張機能を更新した直後は、開いていたページを再読み込みしてください。
+          </SettingHeading>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="selection-auto-label">
+            {([true, false] as const).map((value) => (
+              <button
+                key={String(value)}
+                type="button"
+                role="radio"
+                aria-checked={settings.selectionAutoTranslate === value}
+                className={settings.selectionAutoTranslate === value ? "active" : ""}
+                onClick={() => void changeSelectionAuto(value)}
+              >
+                {value ? "オン" : "オフ"}
+              </button>
+            ))}
+          </div>
+
+          <SettingHeading id="cache-label" label="翻訳のキャッシュ" help={help}>
+            <b>保存する</b>：翻訳したページの結果を、この端末の拡張機能の中だけに保存し、同じページを開いたときに再利用します。ページの本文が変わっていた部分は翻訳し直します。外部へは送信しません。<br />
+            <b>保存しない</b>：翻訳結果を保存せず、保存済みの内容も削除します。
+          </SettingHeading>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="cache-label">
+            {([true, false] as const).map((value) => (
+              <button
+                key={String(value)}
+                type="button"
+                role="radio"
+                aria-checked={settings.cacheEnabled === value}
+                className={settings.cacheEnabled === value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, cacheEnabled: value })}
+              >
+                {value ? "保存する" : "保存しない"}
+              </button>
+            ))}
+          </div>
+          {settings.cacheEnabled && (
+            <>
+              <label className="field-label" htmlFor="cache-ttl">保存する時間</label>
+              <select id="cache-ttl" className="field" value={settings.cacheTtlHours} onChange={(event) => void persistSettings({ ...settings, cacheTtlHours: Number(event.target.value) })}>
+                {[...CACHE_TTL_HOURS].sort((a, b) => a - b).map((hours) => <option key={hours} value={hours}>{hours}時間</option>)}
+              </select>
+            </>
+          )}
+          {settings.cacheEnabled && (
+            <button className="text-button" type="button" onClick={() => void clearCache()} disabled={cacheInfo.pages === 0}>
+              <Icon name="trash" />キャッシュを削除（{cacheInfo.pages}ページ）
+            </button>
+          )}
+
+          <h3 className="settings-section">翻訳サービス</h3>
+          <div className={`provider-card ${settings.useJev ? "" : "unused"}`}>
+            <div className="provider-card-heading">
+              <div><h3>TypeSafe Jev</h3><p>{settings.useJev ? "ページから翻訳する本文を選びます。" : "現在は使わない設定です。"}</p></div>
+              <span className={`badge ${providerStatus?.providers.jev ? "ready" : "missing"}`}>{providerStatus?.providers.jev ? "登録済み" : "未設定"}</span>
+            </div>
+            <label className="field-label" htmlFor="typesafe-api-key">APIキー</label>
+            <input id="typesafe-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={typesafeApiKey} onChange={(event) => setTypesafeApiKey(event.target.value)} placeholder={providerStatus?.providers.jev ? "登録済み · 変更時だけ入力" : "TypeSafe JevのAPIキー"} />
+          </div>
+
+          <div className="provider-card">
+            <div className="provider-card-heading">
+              <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
+              <span className={`badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "登録済み" : "未設定"}</span>
+            </div>
+            <label className="field-label" htmlFor="deepl-endpoint">接続先</label>
+            <select id="deepl-endpoint" className="field" value={settings.deeplEndpoint} onChange={(event) => void changeDeepLEndpoint(event.target.value as DeepLEndpoint)}>
+              <option value="auto">自動（キーから判定）</option>
+              <option value="free">無料プラン（api-free.deepl.com）</option>
+              <option value="pro">有料プラン（api.deepl.com）</option>
+            </select>
+            <p className="field-hint">{deeplEndpointHint(settings.deeplEndpoint, providerStatus?.deeplPlan ?? null)}</p>
+            <label className="field-label" htmlFor="deepl-api-key">APIキー</label>
+            <input id="deepl-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={deeplApiKey} onChange={(event) => setDeeplApiKey(event.target.value)} placeholder={providerStatus?.providers.deepl ? "登録済み · 変更時だけ入力" : "DeepL APIキー"} />
+          </div>
+
+          {error && <div className="error-banner" role="alert"><Icon name="alert" />{error}</div>}
+          <button className="button primary block" type="button" onClick={() => void saveProviderKeys()} disabled={savingKeys}>
+            <Icon name="key" />{savingKeys ? "保存しています…" : "APIキーを保存"}
+          </button>
+          <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl}>
+            <Icon name="trash" />保存中のAPIキーを削除
+          </button>
+          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe JevまたはDeepLへ直接送信します。</p>
+        </section>
+      ) : (
+        <>
+          {/* Kept mounted so drafts survive switching tabs. */}
+          <div className="compose-view" hidden={view !== "compose"}>
+            <Composer settings={settings} deeplPlan={providerStatus?.deeplPlan ?? null} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
+          </div>
+          {view === "translate" && (<>
+          <section className="status-area">
             <div className="status" role="status" aria-live="polite">
               <div className="status-row">
                 <span className={`status-dot ${busy ? "busy" : entries.length > 0 ? "done" : ""}`} aria-hidden="true" />
@@ -1493,6 +1524,32 @@ const ADDING = "翻訳しています…";
 
 function nextPaint(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+type HelpState = { isOpen: (id: string) => boolean; toggle: (id: string) => void };
+
+/** A settings heading whose explanation stays folded until the reader asks for it with the ⓘ button. */
+function SettingHeading({ id, label, help, children }: { id: string; label: string; help: HelpState; children: React.ReactNode }) {
+  const open = help.isOpen(id);
+  return (
+    <>
+      <div className="settings-heading">
+        <h3 className="settings-section" id={id}>{label}</h3>
+        <button
+          type="button"
+          className={`help-toggle ${open ? "active" : ""}`}
+          aria-expanded={open}
+          aria-controls={`${id}-help`}
+          aria-label={`${label}の説明`}
+          title={open ? "説明を閉じる" : "説明を表示"}
+          onClick={() => help.toggle(id)}
+        >
+          <Icon name="info" />
+        </button>
+      </div>
+      <p className="field-hint help-text" id={`${id}-help`} hidden={!open}>{children}</p>
+    </>
+  );
 }
 
 function deeplEndpointHint(endpoint: DeepLEndpoint, plan: DeepLPlan | null): string {
