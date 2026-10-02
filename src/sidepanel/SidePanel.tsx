@@ -135,6 +135,18 @@ export function SidePanel() {
   const [watchTabId, setWatchTabId] = useState<number | null>(null);
   // The tab the results and modes belong to; switching to another tab in this window clears them.
   const boundTabRef = useRef<number | null>(null);
+  const panelTopRef = useRef<HTMLDivElement | null>(null);
+
+  // The results heading sticks right under the fixed controls, whose height changes with notes and modes.
+  useEffect(() => {
+    const top = panelTopRef.current;
+    if (!top) return;
+    const update = () => document.documentElement.style.setProperty("--panel-top-height", `${top.offsetHeight}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(top);
+    return () => observer.disconnect();
+  }, []);
   /** Set once the stored settings are read, so nothing acts on the defaults in the meantime. */
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   /** What the last run took from the translation cache, shown under the status. */
@@ -984,6 +996,8 @@ export function SidePanel() {
 
   return (
     <main className="panel-shell">
+      {/* Everything up to the status line stays put while the results scroll. */}
+      <div className="panel-top" ref={panelTopRef}>
       <header className="panel-header">
         <img className="brand-mark" src="/icons/icon48.png" alt="" width="32" height="32" />
         <div className="brand-copy">
@@ -1000,6 +1014,98 @@ export function SidePanel() {
           <Icon name="settings" />
         </button>
       </header>
+
+      {!settingsOpen && (
+        <>
+          <div className="view-tabs" role="tablist" aria-label="機能">
+            <button type="button" role="tab" aria-selected={view === "translate"} className={view === "translate" ? "active" : ""} onClick={() => setView("translate")}>
+              <Icon name="split" />ページ翻訳
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "compose"}
+              aria-disabled={composeLocked}
+              className={`${view === "compose" ? "active" : ""} ${composeLocked ? "locked" : ""}`}
+              title={composeLocked ? COMPOSE_NEEDS_DEEPL : undefined}
+              onClick={() => (composeLocked ? setComposeHint(true) : setView("compose"))}
+            >
+              <Icon name="pen" />英作文
+            </button>
+          </div>
+          {composeLocked && composeHint && (
+            <p className="compose-lock-note" role="status">
+              {COMPOSE_NEEDS_DEEPL}
+              <button type="button" className="text-button" onClick={() => { setComposeHint(false); setSettingsOpen(true); }}><Icon name="key" />設定を開く</button>
+            </p>
+          )}
+          {view === "translate" && (
+          <section className="controls">
+            <div className="page-context">
+              <span className="favicon-dot" aria-hidden="true">{pageUrl ? pageUrl.replace(/^www\./, "").slice(0, 1).toUpperCase() : <Icon name="inline" />}</span>
+              <div className="page-context-text">
+                <strong title={pageTitle || "現在のページ"}>{pageTitle || "現在のページ"}</strong>
+                <small>{pageUrl || "タブを選んで翻訳を開始"}</small>
+              </div>
+              <label className="language-control">
+                <span className="sr-only">翻訳先</span>
+                <select
+                  value={settings.targetLanguage}
+                  onChange={(event) => void persistSettings({ ...settings, targetLanguage: event.target.value as TargetLanguage })}
+                >
+                  <option value="JA">日本語へ</option>
+                  <option value="EN">英語へ</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="mode-switch" role="group" aria-label="翻訳の表示方法">
+              <button type="button" className={settings.displayMode === "source-panel" ? "active" : ""} aria-pressed={settings.displayMode === "source-panel"} onClick={() => void changeMode("source-panel")}>
+                <Icon name="split" />原文＋訳文
+              </button>
+              <button type="button" className={settings.displayMode === "inline" ? "active" : ""} aria-pressed={settings.displayMode === "inline"} onClick={() => void changeMode("inline")}>
+                <Icon name="inline" />ページ内
+              </button>
+            </div>
+
+            <button className="button primary block translate-button" type="button" onClick={() => void startTranslation()} disabled={busy} aria-busy={busy} title={withShortcut("このページを翻訳", shortcuts["translate-page"])}>
+              {busy ? <span className="spinner" aria-hidden="true" /> : <Icon name="translate" />}
+              {busy ? "翻訳しています…" : "このページを翻訳"}
+              {!busy && shortcuts["translate-page"] && <kbd className="button-kbd">{shortcuts["translate-page"]}</kbd>}
+            </button>
+
+            <div className="tool-row">
+              <button
+                type="button"
+                className={`pick-toggle ${pagePick ? "active" : ""}`}
+                aria-pressed={pagePick}
+                disabled={!scanned}
+                title={scanned ? withShortcut("ページ上の本文をクリックして、対応する訳文を表示します", shortcuts["toggle-page-pick"]) : "先に「このページを翻訳」を実行してください"}
+                onClick={() => setPagePick((on) => !on)}
+              >
+                <Icon name="pointer" />ページクリック
+                {shortcuts["toggle-page-pick"] && <kbd className="button-kbd">{shortcuts["toggle-page-pick"]}</kbd>}
+              </button>
+              <button
+                type="button"
+                className={`pick-toggle selection-toggle ${selectionMode ? "active" : ""}`}
+                aria-pressed={selectionMode}
+                title={withShortcut("ページ上で選んだ文章を、その場で翻訳します（ショートカットは選択中の文章を1回だけ翻訳）", shortcuts["translate-selection"])}
+                onClick={() => void toggleSelectionMode()}
+              >
+                <Icon name="selection" />選択範囲翻訳
+                {shortcuts["translate-selection"] && <kbd className="button-kbd">{shortcuts["translate-selection"]}</kbd>}
+              </button>
+            </div>
+            {selectionMode && (
+              <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上で文章を選ぶと、その場に訳を表示します。パネルを閉じるとオフになります</p>
+            )}
+
+          </section>
+          )}
+        </>
+      )}
+      </div>
 
       {settingsOpen ? (
         <section className="settings-page" aria-labelledby="settings-title">
@@ -1179,94 +1285,12 @@ export function SidePanel() {
         </section>
       ) : (
         <>
-          <div className="view-tabs" role="tablist" aria-label="機能">
-            <button type="button" role="tab" aria-selected={view === "translate"} className={view === "translate" ? "active" : ""} onClick={() => setView("translate")}>
-              <Icon name="split" />ページ翻訳
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "compose"}
-              aria-disabled={composeLocked}
-              className={`${view === "compose" ? "active" : ""} ${composeLocked ? "locked" : ""}`}
-              title={composeLocked ? COMPOSE_NEEDS_DEEPL : undefined}
-              onClick={() => (composeLocked ? setComposeHint(true) : setView("compose"))}
-            >
-              <Icon name="pen" />英作文
-            </button>
-          </div>
-          {composeLocked && composeHint && (
-            <p className="compose-lock-note" role="status">
-              {COMPOSE_NEEDS_DEEPL}
-              <button type="button" className="text-button" onClick={() => { setComposeHint(false); setSettingsOpen(true); }}><Icon name="key" />設定を開く</button>
-            </p>
-          )}
           {/* Kept mounted so drafts survive switching tabs. */}
           <div className="compose-view" hidden={view !== "compose"}>
             <Composer settings={settings} deeplPlan={providerStatus?.deeplPlan ?? null} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
           </div>
           {view === "translate" && (<>
-          <section className="controls">
-            <div className="page-context">
-              <span className="favicon-dot" aria-hidden="true">{pageUrl ? pageUrl.replace(/^www\./, "").slice(0, 1).toUpperCase() : <Icon name="inline" />}</span>
-              <div className="page-context-text">
-                <strong title={pageTitle || "現在のページ"}>{pageTitle || "現在のページ"}</strong>
-                <small>{pageUrl || "タブを選んで翻訳を開始"}</small>
-              </div>
-              <label className="language-control">
-                <span className="sr-only">翻訳先</span>
-                <select
-                  value={settings.targetLanguage}
-                  onChange={(event) => void persistSettings({ ...settings, targetLanguage: event.target.value as TargetLanguage })}
-                >
-                  <option value="JA">日本語へ</option>
-                  <option value="EN">英語へ</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="mode-switch" role="group" aria-label="翻訳の表示方法">
-              <button type="button" className={settings.displayMode === "source-panel" ? "active" : ""} aria-pressed={settings.displayMode === "source-panel"} onClick={() => void changeMode("source-panel")}>
-                <Icon name="split" />原文＋訳文
-              </button>
-              <button type="button" className={settings.displayMode === "inline" ? "active" : ""} aria-pressed={settings.displayMode === "inline"} onClick={() => void changeMode("inline")}>
-                <Icon name="inline" />ページ内
-              </button>
-            </div>
-
-            <button className="button primary block translate-button" type="button" onClick={() => void startTranslation()} disabled={busy} aria-busy={busy} title={withShortcut("このページを翻訳", shortcuts["translate-page"])}>
-              {busy ? <span className="spinner" aria-hidden="true" /> : <Icon name="translate" />}
-              {busy ? "翻訳しています…" : "このページを翻訳"}
-              {!busy && shortcuts["translate-page"] && <kbd className="button-kbd">{shortcuts["translate-page"]}</kbd>}
-            </button>
-
-            <div className="tool-row">
-              <button
-                type="button"
-                className={`pick-toggle ${pagePick ? "active" : ""}`}
-                aria-pressed={pagePick}
-                disabled={!scanned}
-                title={scanned ? withShortcut("ページ上の本文をクリックして、対応する訳文を表示します", shortcuts["toggle-page-pick"]) : "先に「このページを翻訳」を実行してください"}
-                onClick={() => setPagePick((on) => !on)}
-              >
-                <Icon name="pointer" />ページクリック
-                {shortcuts["toggle-page-pick"] && <kbd className="button-kbd">{shortcuts["toggle-page-pick"]}</kbd>}
-              </button>
-              <button
-                type="button"
-                className={`pick-toggle selection-toggle ${selectionMode ? "active" : ""}`}
-                aria-pressed={selectionMode}
-                title={withShortcut("ページ上で選んだ文章を、その場で翻訳します（ショートカットは選択中の文章を1回だけ翻訳）", shortcuts["translate-selection"])}
-                onClick={() => void toggleSelectionMode()}
-              >
-                <Icon name="selection" />選択範囲翻訳
-                {shortcuts["translate-selection"] && <kbd className="button-kbd">{shortcuts["translate-selection"]}</kbd>}
-              </button>
-            </div>
-            {selectionMode && (
-              <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />ページ上で文章を選ぶと、その場に訳を表示します。パネルを閉じるとオフになります</p>
-            )}
-
+          <section className="status-area">
             <div className="status" role="status" aria-live="polite">
               <div className="status-row">
                 <span className={`status-dot ${busy ? "busy" : entries.length > 0 ? "done" : ""}`} aria-hidden="true" />

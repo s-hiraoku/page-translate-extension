@@ -226,6 +226,28 @@ test.describe("scrolling to a card", () => {
     return { visible: card.top >= heading.bottom && card.bottom <= footer.top, offCenter: Math.abs((card.top + card.bottom) / 2 - (heading.bottom + footer.top) / 2) };
   }, id);
 
+  test("the controls stay at the top while the status and results scroll", async ({ page }) => {
+    await openPanel(page);
+    await page.setViewportSize({ width: 380, height: 640 });
+    await many(page);
+    await translate(page);
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" }));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+
+    const layout = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      return { top: box(".panel-top"), button: box(".translate-button"), tools: box(".tool-row"), status: box(".status-area"), heading: box(".results-heading") };
+    });
+    // The header, tabs, page, display mode, translate button and both toggles never move.
+    expect(layout.top.top).toBe(0);
+    expect(layout.button.top).toBeGreaterThan(0);
+    expect(layout.tools.bottom).toBeLessThanOrEqual(layout.top.bottom);
+    // "ページ内に○件…" scrolls away under the controls; the list heading sticks right below them.
+    expect(layout.status.bottom).toBeLessThanOrEqual(layout.top.bottom);
+    expect(layout.heading.top).toBeCloseTo(layout.top.bottom, 0);
+    await expect(page.locator(".translate-button")).toBeInViewport();
+  });
+
   test("a source picked on the page glides its card to the middle of the list", async ({ page }) => {
     await openPanel(page);
     await page.setViewportSize({ width: 380, height: 640 });
