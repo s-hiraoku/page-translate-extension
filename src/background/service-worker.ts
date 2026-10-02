@@ -6,6 +6,7 @@ import type {
 } from "../shared/types";
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type ExtensionSettings, type PanelCommandRequest } from "../shared/types";
 import { CONSENT_NOTE, createSelectionTranslator, type SelectionOutcome } from "./selection";
+import { settingsOnInstall } from "../shared/effective-settings";
 import { classifyCandidates, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
@@ -13,12 +14,8 @@ const storageReady = restrictStorageToExtensionPages();
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   void storageReady.then(() => chrome.storage.local.get(SETTINGS_KEY)).then((stored) => {
-    const current = stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined;
-    // A new install translates with Chrome's built-in translator (no key needed). Someone who used the
-    // extension before it was the default keeps DeepL, so their translations do not change under them.
-    if (!current) return chrome.storage.local.set({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
-    if (current.translationProvider === undefined) return chrome.storage.local.set({ [SETTINGS_KEY]: { ...current, translationProvider: "deepl" } });
-    return undefined;
+    const next = settingsOnInstall(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined);
+    return next ? chrome.storage.local.set({ [SETTINGS_KEY]: next }) : undefined;
   });
   void createMenus();
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveSettings } from "../../src/shared/effective-settings";
+import { effectiveSettings, settingsOnInstall } from "../../src/shared/effective-settings";
 import { DEFAULT_SETTINGS } from "../../src/shared/types";
 
 describe("effectiveSettings", () => {
@@ -21,5 +21,20 @@ describe("effectiveSettings", () => {
 
   it("translates with Chrome by default, so a new install needs no key", () => {
     expect(DEFAULT_SETTINGS.translationProvider).toBe("chrome");
+  });
+});
+
+describe("settingsOnInstall", () => {
+  it("gives a new install the defaults, with Chrome's translator", () => {
+    expect(settingsOnInstall(undefined)).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it("keeps DeepL for someone who used the extension before Chrome's translator was the default", () => {
+    expect(settingsOnInstall({ targetLanguage: "EN", useJev: true })).toEqual({ targetLanguage: "EN", useJev: true, translationProvider: "deepl" });
+  });
+
+  it("leaves a choice already made alone", () => {
+    expect(settingsOnInstall({ translationProvider: "chrome" })).toBeNull();
+    expect(settingsOnInstall({ translationProvider: "deepl" })).toBeNull();
   });
 });
