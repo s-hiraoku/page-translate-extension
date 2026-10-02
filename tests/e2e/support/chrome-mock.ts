@@ -18,6 +18,11 @@ export interface MockOptions {
   stored?: Record<string, unknown>;
   /** Which API keys are registered; both by default. */
   providers?: { jev: boolean; deepl: boolean };
+  /**
+   * Chrome's built-in Translator API, absent by default (as in Playwright's Chromium). "downloadable"
+   * reports download progress when created; window.__translatorCreates counts creations.
+   */
+  translator?: "available" | "downloadable" | "unavailable";
 }
 
 /** Window the mocked side panel lives in. */
@@ -33,11 +38,33 @@ export const SEGMENTS = [
 ].map((segment) => ({ sourceHtml: segment.sourceText, linkDensity: 0, isArticleTitle: false, ...segment }));
 
 export async function installChromeMock(page: Page, options: MockOptions = {}): Promise<void> {
-  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId, stored, providers }) => {
+  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId, stored, providers, translator }) => {
     type Message = { type: string; [key: string]: unknown };
     type Handler = (message: Message) => unknown;
     const w = window as unknown as Record<string, unknown>;
     const store: Record<string, unknown> = {};
+    // Playwright's Chromium has the API object, but its availability() never settles (no model):
+    // tests decide whether there is one.
+    if (!translator) Object.defineProperty(w, "Translator", { value: undefined, configurable: true, writable: true });
+    if (translator) {
+      w.__translatorCreates = 0;
+      w.Translator = {
+        availability: async () => translator,
+        create: async (options: { sourceLanguage: string; targetLanguage: string; monitor?: (m: EventTarget) => void }) => {
+          w.__translatorCreates = (w.__translatorCreates as number) + 1;
+          if (translator === "downloadable") {
+            const monitor = new EventTarget();
+            options.monitor?.(monitor);
+            for (const loaded of [0.25, 0.5]) {
+              await new Promise((resolve) => setTimeout(resolve, 150));
+              monitor.dispatchEvent(Object.assign(new Event("downloadprogress"), { loaded, total: 1 }));
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+          }
+          return { translate: async (text: string) => `[Chrome ${options.targetLanguage}] ${text}` };
+        },
+      };
+    }
     if (consent != null) store.pageTranslateDataUseConsentVersion = consent;
     if (settings) store.pageTranslateSettings = settings;
     if (stored) Object.assign(store, stored);
@@ -155,7 +182,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         },
       },
     };
-  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true } });
+  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true }, translator: options.translator ?? null });
 }
 
 /** Message types the panel has sent so far, in order. */

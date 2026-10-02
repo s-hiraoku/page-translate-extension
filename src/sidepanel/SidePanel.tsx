@@ -42,6 +42,7 @@ import {
   type CachedPage,
 } from "./cache";
 import { isInTargetLanguage, isMainProse } from "./rules";
+import { chromeTranslatorSupported, getChromeTranslator, setDownloadProgressListener, textToHtml, translateWithChrome } from "./chrome-translator";
 import { applyTheme, cachedTheme } from "./theme";
 import { createScreenTopTracker } from "../shared/screen-top";
 
@@ -65,6 +66,7 @@ const jevOptions: Array<{ value: boolean; label: string }> = [
   { value: false, label: "Jevを使わない" },
 ];
 
+const COMPOSE_NEEDS_DEEPL = "英作文機能を使うには、設定でDeepLのAPIキーを登録してください。";
 const INITIAL_STATUS = "ページを開いて「このページを翻訳」を押してください。";
 /** The user guide (GitHub Pages, built from docs/). */
 const GUIDE_URL = "https://s-hiraoku.github.io/page-translate-extension/";
@@ -108,6 +110,8 @@ export function SidePanel() {
   const [consentOpen, setConsentOpen] = useState(false);
   const consentResolver = useRef<((agreed: boolean) => void) | null>(null);
   const [view, setView] = useState<"translate" | "compose">("translate");
+  /** Shown after the reader tries the writing tab without a DeepL key. */
+  const [composeHint, setComposeHint] = useState(false);
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
   /**
@@ -242,6 +246,15 @@ export function SidePanel() {
     void sendMessage<ProviderStatus>({ type: "CHECK_PROVIDERS" }).then(setProviderStatus, () => undefined);
   }, []);
 
+  // The writing check runs on DeepL only. Until the key check answers, the tab stays as it is
+  // (no flicker); without a key it is shown locked, and a reader on it (the key was just removed)
+  // goes back to page translation.
+  const composeLocked = providerStatus !== null && !providerStatus.providers.deepl;
+  useEffect(() => {
+    if (composeLocked && view === "compose") setView("translate");
+    if (!composeLocked) setComposeHint(false);
+  }, [composeLocked, view]);
+
   const pickable = useMemo(
     () => visibleEntries.flatMap((entry, index) => entry.state === "translated" ? [{ id: entry.id, label: String(index + 1), color: entryColor(index) }] : []),
     [visibleEntries],
@@ -251,6 +264,7 @@ export function SidePanel() {
   visibleRef.current = visibleEntries;
   const entriesRef = useRef(entries);
   entriesRef.current = entries;
+  const chromeSupported = useMemo(() => chromeTranslatorSupported(), []);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   /** Bumped by every new scan so late results from the previous list are dropped. */
@@ -417,11 +431,7 @@ export function SidePanel() {
 
     try {
       // This runs from the port listener, so read the current settings through the ref.
-      const result = await sendMessage<TranslationResult>({
-        type: "TRANSLATE_SEGMENTS",
-        segments: [entry],
-        targetLanguage: settingsRef.current.targetLanguage,
-      });
+      const result = await translateSegmentsWith([entry], settingsRef.current);
       // A new scan reuses segment ids; never let this result land on its cards.
       if (generation !== generationRef.current) return;
       const translation = result.translations.find((item) => item.id === entry.id);
@@ -530,7 +540,28 @@ export function SidePanel() {
 
   /** Resolves true once the page was scanned, so page-click mode can start. */
   async function startTranslation(fresh = false): Promise<boolean> {
-    return await ensureConsent() ? runTranslation(fresh) : false;
+    // Straight from the click: the first use of Chrome's translator downloads its model, which
+    // Chrome allows only right after a click. The translator is kept for the rest of the run.
+    prepareChromeTranslator();
+    return await consentForPage() ? runTranslation(fresh) : false;
+  }
+
+  /** Starts creating Chrome's translator while the click still counts; errors show up when it is used. */
+  function prepareChromeTranslator(): void {
+    if (settingsRef.current.translationProvider !== "chrome") return;
+    setDownloadProgressListener((percent) => setStatus(`Chromeの翻訳モデルをダウンロードしています… ${percent}%`));
+    getChromeTranslator(settingsRef.current.targetLanguage).catch(() => undefined);
+  }
+
+  /** Page translation sends text out unless Chrome translates and Jev is off: then nothing leaves this device. */
+  async function consentForPage(): Promise<boolean> {
+    const current = settingsRef.current;
+    return current.translationProvider === "chrome" && !current.useJev ? true : ensureConsent();
+  }
+
+  /** Selection translation sends the text to DeepL; Chrome's translator keeps it on this device. */
+  async function consentForSelection(): Promise<boolean> {
+    return settingsRef.current.translationProvider === "chrome" ? true : ensureConsent();
   }
 
   commandRef.current = (command) => void runCommand(command);
@@ -572,7 +603,9 @@ export function SidePanel() {
       return;
     }
     try {
-      const result = await sendMessage<{ text: string }>({ type: "TRANSLATE_SELECTION", text, targetLang });
+      const result = current.translationProvider === "chrome"
+        ? { text: (await translateWithChrome([text], current.targetLanguage))[0] ?? "" }
+        : await sendMessage<{ text: string }>({ type: "TRANSLATE_SELECTION", text, targetLang });
       selectionCache.current.set(key, result.text);
       // Keep the newest 50; a Map iterates in insertion order.
       if (selectionCache.current.size > 50) selectionCache.current.delete(selectionCache.current.keys().next().value as string);
@@ -589,7 +622,7 @@ export function SidePanel() {
       await holdPresence();
       const read = await sendMessage<ReadSelectionResult>({ type: "READ_SELECTION" });
       if (read.empty) return;
-      if (!(await ensureConsent())) {
+      if (!(await consentForSelection())) {
         await sendMessage({ type: "SELECTION_RESULT", id: read.id, note: "データ送信に同意されなかったため、翻訳しませんでした。" }).catch(() => undefined);
         return;
       }
@@ -605,7 +638,8 @@ export function SidePanel() {
       return;
     }
     setError("");
-    if (await ensureConsent()) setSelectionMode(true);
+    prepareChromeTranslator();
+    if (await consentForSelection()) setSelectionMode(true);
   }
 
   async function loadShortcuts(): Promise<void> {
@@ -659,7 +693,7 @@ export function SidePanel() {
       // verdicts depend on the page as a whole), but translations of unchanged texts are still reused.
       const useCache = settings.cacheEnabled;
       const hashes = useCache ? await Promise.all(candidates.map((segment) => hashText(segment.sourceText))) : [];
-      const cacheKey = pageCacheKey(page.url, settings.targetLanguage, settings.useJev);
+      const cacheKey = pageCacheKey(page.url, settings.targetLanguage, settings.useJev, settings.translationProvider);
       const store = useCache ? await loadCacheStore() : emptyCache();
       if (stale()) return false;
       const cached = useCache && !fresh ? findPage(store, cacheKey, settings.cacheTtlHours, Date.now()) : null;
@@ -802,12 +836,18 @@ export function SidePanel() {
     setCacheNote(null);
   }
 
+  /** Translates with the chosen service: DeepL through the service worker, or Chrome's translator right here. */
+  async function translateSegmentsWith(segments: CandidateSegment[], current: ExtensionSettings): Promise<TranslationResult> {
+    if (current.translationProvider !== "chrome") {
+      return sendMessage<TranslationResult>({ type: "TRANSLATE_SEGMENTS", segments, targetLanguage: current.targetLanguage });
+    }
+    setDownloadProgressListener((percent) => setStatus(`Chromeの翻訳モデルをダウンロードしています… ${percent}%`));
+    const texts = await translateWithChrome(segments.map((segment) => segment.sourceText), current.targetLanguage);
+    return { translations: segments.map((segment, index) => ({ id: segment.id, translatedText: texts[index] ?? "", translatedHtml: textToHtml(texts[index] ?? "") })) };
+  }
+
   async function requestTranslations(segments: CandidateSegment[]): Promise<Array<TranslationEntry & { translatedText: string; translatedHtml: string; state: "translated" }>> {
-    const result = await sendMessage<TranslationResult>({
-      type: "TRANSLATE_SEGMENTS",
-      segments,
-      targetLanguage: settings.targetLanguage,
-    });
+    const result = await translateSegmentsWith(segments, settings);
     return result.translations.map((translation) => {
       const source = segments.find((segment) => segment.id === translation.id);
       if (!source) throw new Error("翻訳結果と文章の対応が取れませんでした。");
@@ -980,6 +1020,33 @@ export function SidePanel() {
           </button>
           <p className="field-hint">Chromeの拡張機能のショートカット設定で変更できます。ほかの拡張機能と重なっているキーは割り当てられず「未設定」になります。</p>
 
+          <h3 className="settings-section" id="provider-label">翻訳に使うサービス</h3>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="provider-label">
+            {([
+              { value: "deepl", label: "DeepL" },
+              { value: "chrome", label: "Chrome内蔵（試験的）" },
+            ] as const).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={settings.translationProvider === option.value}
+                className={settings.translationProvider === option.value ? "active" : ""}
+                disabled={option.value === "chrome" && !chromeSupported && settings.translationProvider !== "chrome"}
+                onClick={() => void persistSettings({ ...settings, translationProvider: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="field-hint">
+            {!chromeSupported
+              ? "このChromeでは内蔵の翻訳を使えません（パソコン版のChrome 138以降が必要です）。"
+              : settings.translationProvider === "chrome"
+                ? "Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。試験的な機能のため、ページ内表示ではリンクなどの書式が外れます。選択範囲翻訳のショートカットと右クリックはパネルを開いて翻訳し、「選択したら自動で翻訳」はまだ使えないので、パネルの「選択範囲翻訳」ボタンを使ってください。英作文はDeepLを使います。"
+                : "DeepLで翻訳します。DeepLのAPIキーが必要です。"}
+          </p>
+
           <h3 className="settings-section" id="jev-label">翻訳する本文の判定</h3>
           <div className="mode-switch" role="radiogroup" aria-labelledby="jev-label">
             {jevOptions.map((option) => (
@@ -1095,10 +1162,24 @@ export function SidePanel() {
             <button type="button" role="tab" aria-selected={view === "translate"} className={view === "translate" ? "active" : ""} onClick={() => setView("translate")}>
               <Icon name="split" />ページ翻訳
             </button>
-            <button type="button" role="tab" aria-selected={view === "compose"} className={view === "compose" ? "active" : ""} onClick={() => setView("compose")}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "compose"}
+              aria-disabled={composeLocked}
+              className={`${view === "compose" ? "active" : ""} ${composeLocked ? "locked" : ""}`}
+              title={composeLocked ? COMPOSE_NEEDS_DEEPL : undefined}
+              onClick={() => (composeLocked ? setComposeHint(true) : setView("compose"))}
+            >
               <Icon name="pen" />英作文
             </button>
           </div>
+          {composeLocked && composeHint && (
+            <p className="compose-lock-note" role="status">
+              {COMPOSE_NEEDS_DEEPL}
+              <button type="button" className="text-button" onClick={() => { setComposeHint(false); setSettingsOpen(true); }}><Icon name="key" />設定を開く</button>
+            </p>
+          )}
           {/* Kept mounted so drafts survive switching tabs. */}
           <div className="compose-view" hidden={view !== "compose"}>
             <Composer settings={settings} deeplPlan={providerStatus?.deeplPlan ?? null} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
@@ -1249,9 +1330,9 @@ export function SidePanel() {
               <ol className="steps">
                 <li><span>1</span>本文を抽出</li>
                 <li><span>2</span>{settings.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
-                <li><span>3</span>DeepLで翻訳</li>
+                <li><span>3</span>{settings.translationProvider === "chrome" ? "Chromeで翻訳" : "DeepLで翻訳"}</li>
               </ol>
-              {providerStatus && !providerStatus.providers.deepl && (
+              {settings.translationProvider === "deepl" && providerStatus && !providerStatus.providers.deepl && (
                 <p className="setup-hint">
                   はじめに、DeepLのAPIキーを登録してください（TypeSafe Jevは、設定でオフにすれば不要です）。
                   <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
@@ -1268,7 +1349,7 @@ export function SidePanel() {
           )}
 
           <footer className="panel-footer">
-            <span className="privacy"><Icon name="shield" />{settings.useJev ? "翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信" : "翻訳時は本文をDeepLへ送信（Jevは不使用）"}</span>
+            <span className="privacy"><Icon name="shield" />{privacySummary(settings)}</span>
             <a className="text-button" href={GUIDE_URL} target="_blank" rel="noreferrer">使い方</a>
             {settings.displayMode === "inline" && translatedCount > 0 && (
               <button type="button" className="text-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>
@@ -1328,6 +1409,14 @@ function dropPresence(): void {
     try { port.disconnect(); } catch { /* already gone */ }
   }
   presencePorts.clear();
+}
+
+/** One line, at the foot of the panel, on where page text goes when translating. */
+function privacySummary(settings: ExtensionSettings): string {
+  if (settings.translationProvider === "chrome") {
+    return settings.useJev ? "翻訳時は本文候補をJevへ送信。翻訳はこの端末の中で行います" : "翻訳はこの端末の中で行い、外部へは送信しません";
+  }
+  return settings.useJev ? "翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信" : "翻訳時は本文をDeepLへ送信（Jevは不使用）";
 }
 
 async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {

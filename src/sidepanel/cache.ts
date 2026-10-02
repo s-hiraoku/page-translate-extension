@@ -1,4 +1,4 @@
-import type { Decision, TargetLanguage } from "../shared/types";
+import type { Decision, TargetLanguage, TranslationProvider } from "../shared/types";
 
 /**
  * Translation cache. A page's translation is kept on this device for a few hours so that
@@ -58,8 +58,9 @@ export { normalizePageUrl } from "../shared/page-url";
 import { normalizePageUrl } from "../shared/page-url";
 
 /** Results depend on the language and on whether Jev chose the text, so each combination has its own entry. */
-export function pageCacheKey(url: string, target: TargetLanguage, useJev: boolean): string {
-  return `${normalizePageUrl(url)}|${target}|${useJev ? "jev" : "nojev"}`;
+export function pageCacheKey(url: string, target: TargetLanguage, useJev: boolean, provider: TranslationProvider = "deepl"): string {
+  // DeepL keeps the key it had before other translators existed, so its cache stays valid.
+  return `${normalizePageUrl(url)}|${target}|${useJev ? "jev" : "nojev"}${provider === "deepl" ? "" : `|${provider}`}`;
 }
 
 /** Short stable hash of a text (SHA-256, first 16 hex digits). */

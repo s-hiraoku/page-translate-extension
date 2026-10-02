@@ -399,3 +399,46 @@ test.describe("first run", () => {
     await expect(page.getByRole("link", { name: "使い方" })).toHaveAttribute("href", "https://s-hiraoku.github.io/page-translate-extension/");
   });
 });
+
+test.describe("the writing tab needs a DeepL key", () => {
+  const composeTab = (page: Page) => page.getByRole("tab", { name: "英作文" });
+  const overrideMessage = (page: Page, type: string, reply: unknown) => page.evaluate(({ type, reply }) => {
+    (window as unknown as { __override: (type: string, handler: () => unknown) => void }).__override(type, () => reply);
+  }, { type, reply });
+
+  test("is open with a DeepL key", async ({ page }) => {
+    await openPanel(page);
+    await composeTab(page).click();
+    await expect(composeTab(page)).toHaveAttribute("aria-selected", "true");
+    await expect(composeTab(page)).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  test("is locked without one, says why on hover and on click, and leads to the settings", async ({ page }) => {
+    await openPanel(page, { providers: { jev: true, deepl: false } });
+    await expect(composeTab(page)).toHaveAttribute("aria-disabled", "true");
+    await expect(composeTab(page)).toHaveAttribute("title", "英作文機能を使うには、設定でDeepLのAPIキーを登録してください。");
+
+    // aria-disabled (not disabled): it stays focusable and clickable, so the click can explain.
+    await composeTab(page).click({ force: true });
+
+    await expect(composeTab(page)).toHaveAttribute("aria-selected", "false");
+    await expect(page.locator(".compose-lock-note")).toContainText("DeepLのAPIキーを登録してください");
+    await page.locator(".compose-lock-note").getByRole("button", { name: "設定を開く" }).click();
+    await expect(page.getByRole("heading", { name: "設定" })).toBeVisible();
+  });
+
+  test("goes back to page translation when the key is removed while writing", async ({ page }) => {
+    await openPanel(page);
+    await composeTab(page).click();
+    await expect(composeTab(page)).toHaveAttribute("aria-selected", "true");
+    await overrideMessage(page, "CLEAR_PROVIDER_KEYS", { providers: { jev: false, deepl: false }, deeplPlan: null });
+
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "保存中のAPIキーを削除" }).click();
+    await page.getByLabel("翻訳画面に戻る").click();
+
+    await expect(page.getByRole("tab", { name: "ページ翻訳" })).toHaveAttribute("aria-selected", "true");
+    await expect(composeTab(page)).toHaveAttribute("aria-disabled", "true");
+  });
+});

@@ -44,8 +44,18 @@ async function hasConsent(): Promise<boolean> {
 async function readSettings(): Promise<ExtensionSettings> {
   await storageReady;
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) };
+  const settings = { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) };
+  chromeTranslatorChosen = settings.translationProvider === "chrome";
+  return settings;
 }
+
+/**
+ * Whether Chrome's built-in translator is chosen, as last seen. It cannot run here (not in service
+ * workers), so the shortcut and the menu hand selections to the side panel instead; knowing it
+ * without an await lets them open the panel while the key press or click still counts.
+ */
+let chromeTranslatorChosen = false;
+void readSettings().catch(() => undefined);
 
 async function sendToTab<T = unknown>(tabId: number, message: object): Promise<T> {
   return await chrome.tabs.sendMessage(tabId, message) as T;
@@ -94,7 +104,8 @@ async function createMenus(): Promise<void> {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === MENU_TRANSLATE && tab?.id !== undefined) {
-    void translateSelectionOnce(tab.id, tab.windowId);
+    if (chromeTranslatorChosen && tab.windowId !== undefined) void openPanelFor("translate-selection", tab.windowId);
+    else void translateSelectionOnce(tab.id, tab.windowId);
   } else if (info.menuItemId === MENU_AUTO) {
     void readSettings().then((settings) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, selectionAutoTranslate: info.checked === true } }));
   }
@@ -107,6 +118,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (consent) consentKnown = consent.newValue === DATA_USE_CONSENT_VERSION;
   const settings = changes[SETTINGS_KEY];
   if (!settings) return;
+  chromeTranslatorChosen = (settings.newValue as Partial<ExtensionSettings> | undefined)?.translationProvider === "chrome";
   const before = (settings.oldValue as Partial<ExtensionSettings> | undefined)?.selectionAutoTranslate === true;
   const after = (settings.newValue as Partial<ExtensionSettings> | undefined)?.selectionAutoTranslate === true;
   if (before === after) return;
@@ -123,7 +135,7 @@ chrome.commands.onCommand.addListener((command, tab) => {
   if (!isPanelCommand(command) || tab?.windowId === undefined) return;
   const windowId = tab.windowId;
   // Selection translation runs without the panel, unless consent is missing and the panel has to ask.
-  if (command === "translate-selection" && tab.id !== undefined && consentKnown !== false) {
+  if (command === "translate-selection" && tab.id !== undefined && consentKnown !== false && !chromeTranslatorChosen) {
     void translateSelectionOnce(tab.id, windowId);
     return;
   }

@@ -125,7 +125,7 @@
     </ul>
 
     <h2 id="compose">英作文をチェックする</h2>
-    <p>サイドパネルの「英作文」タブには、2つの使い方があります。</p>
+    <p>サイドパネルの「英作文」タブには、2つの使い方があります。英作文はDeepLを使うため、DeepLのAPIキーを登録するまでタブは薄く表示され、押すと登録を案内します。</p>
     <h3>英文をチェック</h3>
     <p>自分で書いた英文を入れて「英文をチェック」を押すと、次を表示します。</p>
     <ul>
@@ -148,6 +148,7 @@
     <h2 id="settings">設定</h2>
     <table>
       <tr><th>項目</th><th>内容</th></tr>
+      <tr><td>翻訳に使うサービス</td><td>「DeepL」（初期値）か「Chrome内蔵（試験的）」を選びます。Chrome内蔵は、パソコン版のChrome 138以降で使え、APIキーなしに、この端末の中で翻訳します（文章をDeepLへ送りません）。初回は翻訳モデルのダウンロードがあり、「このページを翻訳」を押すと始まります。試験的な機能のため、ページ内表示ではリンクなどの書式が外れ、「選択したら自動で翻訳」は使えません（パネルの「選択範囲翻訳」ボタンは使えます）。英作文はDeepLを使います。</td></tr>
       <tr><td>翻訳する本文の判定</td><td>「Jevを使う」（初期値）は、TypeSafe Jevが翻訳する本文を選びます。「Jevを使わない」は、ページ側のルールで除いた残りをすべてDeepLで翻訳します（Jevのキーは不要）。</td></tr>
       <tr><td>DeepLの接続先</td><td>「自動」のとき、キーの末尾が <code>:fx</code> なら無料用、それ以外は有料用に接続します。合わなければ手動で選べます。</td></tr>
       <tr><td>選択したら自動で翻訳</td><td>サイドパネルを閉じていても、文章を選ぶたびに自動で翻訳します（初期値はオフ）。</td></tr>
@@ -243,7 +244,7 @@
     <p>Only DeepL is used. Text already in the target language is not translated, and up to 5,000 characters can be translated at a time. It does not work inside iframes, form fields or the PDF viewer. The first time, you must agree to the data use; if the panel is closed, follow the hint in the tooltip and agree in the panel.</p>
 
     <h2>Check your English writing</h2>
-    <p>The “Writing” tab has two tools. “Check my English” shows what your English conveys (a back-translation), a model translation of what you meant compared with your sentence, and — with a paid DeepL key — a DeepL Write correction. “Japanese to English” turns what you write in Japanese into English, with its back-translation and, with a paid key, a version in the style you choose.</p>
+    <p>The “Writing” tab needs a DeepL API key: until one is registered it is greyed out, and clicking it explains how to register one. It has two tools. “Check my English” shows what your English conveys (a back-translation), a model translation of what you meant compared with your sentence, and — with a paid DeepL key — a DeepL Write correction. “Japanese to English” turns what you write in Japanese into English, with its back-translation and, with a paid key, a version in the style you choose.</p>
 
     <h2>Shortcuts</h2>
     <table>

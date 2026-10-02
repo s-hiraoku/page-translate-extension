@@ -46,6 +46,12 @@ describe("normalizePageUrl", () => {
 });
 
 describe("pageCacheKey", () => {
+  it("keeps DeepL's key as before and gives Chrome's translator its own", () => {
+    const deepl = pageCacheKey("https://example.com/a", "JA", true);
+    expect(pageCacheKey("https://example.com/a", "JA", true, "deepl")).toBe(deepl);
+    expect(pageCacheKey("https://example.com/a", "JA", true, "chrome")).not.toBe(deepl);
+  });
+
   it("separates target language and the Jev setting", () => {
     const base = pageCacheKey("https://example.com/a", "JA", true);
     expect(pageCacheKey("https://example.com/a", "EN", true)).not.toBe(base);
