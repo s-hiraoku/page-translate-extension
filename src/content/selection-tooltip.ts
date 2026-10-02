@@ -2,7 +2,8 @@ import { placeTooltip, type Box } from "./tooltip-layout";
 
 export type TooltipState =
   | { kind: "loading" }
-  | { kind: "done"; text: string }
+  /** `by` names who translated (DeepL unless said). */
+  | { kind: "done"; text: string; by?: string }
   | { kind: "note"; text: string }
   | { kind: "error"; text: string };
 
@@ -140,6 +141,7 @@ export function createSelectionTooltip(anchor: () => Box | null, onClose: () => 
     } else {
       if (state.kind !== "done") body.classList.add(state.kind);
       body.textContent = state.text;
+      if (state.kind === "done") brand.textContent = state.by ?? "DeepL";
     }
     copy.hidden = state.kind !== "done";
     reposition();

@@ -1,6 +1,8 @@
-import type { CandidateSegment, FocusAnchor, PagePickEvent, PageWatchEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionAutoChanged, SelectionEvent, TranslationEntry } from "../shared/types";
+import type { CandidateSegment, FocusAnchor, PagePickEvent, PageWatchEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionAutoChanged, SelectionEvent, TargetLanguage, TranslationEntry } from "../shared/types";
 import { PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_PRESENCE_PORT, SELECTION_PORT } from "../shared/types";
 import { normalizePageUrl } from "../shared/page-url";
+import { chromeTranslatorSupported, translateWithChrome } from "../shared/chrome-translator";
+import { isInTargetLanguage } from "../sidepanel/rules";
 import { readCurrentSelection, type CurrentSelection } from "./selection";
 import { createSelectionTooltip, type SelectionTooltip, type TooltipState } from "./selection-tooltip";
 import type { Box } from "./tooltip-layout";
@@ -101,9 +103,21 @@ function handlePanelMessage(message: { type: string }, sendResponse: (response: 
     sendResponse({ ok: true });
     return;
   }
+  if (type === "TRANSLATE_SELECTION_LOCALLY") {
+    // The shortcut or the menu, with Chrome's translator chosen: translate here, or let DeepL do it.
+    if (!chromeTranslatorSupported()) {
+      sendResponse({ handled: false });
+      return;
+    }
+    const selected = readCurrentSelection();
+    if (selected) translateLocally(selected, (message as unknown as { targetLanguage: TargetLanguage }).targetLanguage);
+    else showNoticeTooltip("翻訳する文章を選択してから、もう一度実行してください。");
+    sendResponse({ handled: true });
+    return;
+  }
   if (type === "SELECTION_RESULT") {
-    const { id, text, note, error } = message as unknown as { id: number; text?: string; note?: string; error?: string };
-    const state: TooltipState = error !== undefined ? { kind: "error", text: error } : note !== undefined ? { kind: "note", text: note } : { kind: "done", text: text ?? "" };
+    const { id, text, note, error, by } = message as unknown as { id: number; text?: string; note?: string; error?: string; by?: string };
+    const state: TooltipState = error !== undefined ? { kind: "error", text: error } : note !== undefined ? { kind: "note", text: note } : { kind: "done", text: text ?? "", by };
     const shown = selectionUi !== null && selectionUi.id === id;
     if (shown) selectionUi?.tooltip.update(state);
     sendResponse({ shown });
@@ -963,16 +977,48 @@ function startSelectionMode(port: chrome.runtime.Port): void {
  */
 function translateIfAutoOn(selected: CurrentSelection): void {
   try {
-    chrome.runtime.sendMessage({ type: "GET_SELECTION_AUTO" }).then((reply: { enabled?: boolean } | undefined) => {
+    chrome.runtime.sendMessage({ type: "GET_SELECTION_AUTO" }).then((reply: { enabled?: boolean; provider?: string; targetLanguage?: TargetLanguage } | undefined) => {
       if (reply?.enabled !== true || selectionMode || pagePick) return;
       // Still the same selection? The reader may have clicked away while we asked.
       const current = readCurrentSelection();
       if (current?.text !== selected.text) return;
-      requestAutoTranslation(selected);
+      // Chrome's translator runs right here (an older Chrome without one falls back to DeepL).
+      if (reply.provider === "chrome" && chromeTranslatorSupported()) translateLocally(selected, reply.targetLanguage ?? "JA");
+      else requestAutoTranslation(selected);
     }).catch(() => undefined);
   } catch {
     // The extension was updated or reloaded: this page's script has lost its connection to it.
   }
+}
+
+/** Translations made here by Chrome's translator, so selecting the same text again is instant. */
+const localTranslations = new Map<string, string>();
+
+/**
+ * Translates the selection with Chrome's built-in translator, on this device. Nothing is sent
+ * anywhere, so no consent is needed. Selecting text counts as the click Chrome wants before it
+ * downloads the language model the first time.
+ */
+function translateLocally(selected: CurrentSelection, target: TargetLanguage): void {
+  const id = showSelectionTooltip(selected);
+  const show = (state: TooltipState) => { if (selectionUi?.id === id) selectionUi.tooltip.update(state); };
+  if (isInTargetLanguage(selected.text, target)) {
+    show({ kind: "note", text: `選択した文章は、すでに${target === "JA" ? "日本語" : "英語"}です。` });
+    return;
+  }
+  const key = `${target}\n${selected.text}`;
+  const known = localTranslations.get(key);
+  if (known !== undefined) {
+    show({ kind: "done", text: known, by: "Chrome" });
+    return;
+  }
+  translateWithChrome([selected.text], target).then(([text = ""]) => {
+    localTranslations.set(key, text);
+    if (localTranslations.size > 50) localTranslations.delete(localTranslations.keys().next().value as string);
+    show({ kind: "done", text, by: "Chrome" });
+  }).catch((caught: unknown) => {
+    show({ kind: "error", text: caught instanceof Error ? caught.message : "翻訳できませんでした。" });
+  });
 }
 
 /** Shows the "translating" tooltip and asks the service worker to translate the selection. */

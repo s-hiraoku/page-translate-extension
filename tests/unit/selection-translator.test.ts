@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { CHROME_PANEL_ONLY_NOTE, CONSENT_NOTE, createSelectionTranslator } from "../../src/background/selection";
+import { CONSENT_NOTE, createSelectionTranslator } from "../../src/background/selection";
 import { DEFAULT_SETTINGS, type ExtensionSettings } from "../../src/shared/types";
 
 function setup(overrides: Partial<ExtensionSettings> = {}, consent = true) {
@@ -70,9 +70,9 @@ describe("selection translator (side panel closed)", () => {
     expect(await run("The tide rises twice a day.")).toEqual({ error: "DeepL APIキーが未設定です。" });
   });
 
-  it("with Chrome's translator chosen, says it works from the panel only and sends nothing", async () => {
+  it("translates with DeepL when the page could not use Chrome's translator", async () => {
     const { run, translate } = setup({ translationProvider: "chrome" });
-    expect(await run("The tide rises twice a day.")).toEqual({ note: CHROME_PANEL_ONLY_NOTE });
-    expect(translate).not.toHaveBeenCalled();
+    expect(await run("The tide rises twice a day.")).toEqual({ text: "JA:The tide rises twice a day." });
+    expect(translate).toHaveBeenCalledTimes(1);
   });
 });

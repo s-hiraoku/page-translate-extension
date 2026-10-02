@@ -3,7 +3,7 @@ import type { TargetLanguage } from "../shared/types";
 /**
  * Chrome's built-in Translator API (desktop Chrome 138 and later). The model runs on this device:
  * nothing is sent anywhere and no API key is needed. It is not available in service workers, so the
- * side panel calls it. The first use downloads a language model, which Chrome only starts right after
+ * side panel and the page (content script) call it. The first use downloads a language model, which Chrome only starts right after
  * the reader clicked something (transient user activation); later uses need no click.
  */
 export type TranslatorAvailability = "unavailable" | "downloadable" | "downloading" | "available";
@@ -23,8 +23,9 @@ interface LanguagePair {
 }
 
 export const CHROME_TRANSLATOR_UNSUPPORTED = "このChromeでは内蔵の翻訳を使えません。パソコン版のChrome 138以降が必要です。";
-export const CHROME_TRANSLATOR_NEEDS_CLICK = "Chrome内蔵の翻訳を初めて使うときは、翻訳モデルのダウンロードが必要です。「このページを翻訳」ボタンを押して始めてください。";
-const PAIR_UNAVAILABLE = "このChromeでは、英語と日本語の翻訳モデルを使えません。";
+export const CHROME_TRANSLATOR_NEEDS_CLICK = "Chrome内蔵の翻訳を初めて使うときは、翻訳モデルのダウンロードが必要です。パネルの「このページを翻訳」を押すか、ページの文章を選び直して始めてください。";
+export const CHROME_TRANSLATOR_BLOCKED = "このページでは、Chrome内蔵の翻訳を使えません。";
+const PAIR_UNAVAILABLE = "このChromeでは、英語と日本語の翻訳モデルを使えません。設定で翻訳サービスをDeepLに切り替えてください。";
 
 function factory(): TranslatorFactory | null {
   return (globalThis as { Translator?: TranslatorFactory }).Translator ?? null;
@@ -50,7 +51,7 @@ export function progressPercent(loaded: number, total = 1): number {
 }
 
 const AVAILABILITY_TIMEOUT_MS = 10_000;
-const NOT_READY = "Chrome内蔵の翻訳の準備ができませんでした。しばらくしてからもう一度お試しください。";
+const NOT_READY = "Chrome内蔵の翻訳の準備ができませんでした。しばらくしてからもう一度お試しいただくか、設定で翻訳サービスをDeepLに切り替えてください。";
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -80,7 +81,14 @@ export function getChromeTranslator(target: TargetLanguage): Promise<TranslatorI
     const api = factory();
     if (!api) throw new Error(CHROME_TRANSLATOR_UNSUPPORTED);
     // A Chrome without the model service can leave this pending forever; do not hang the panel.
-    const availability = await withTimeout(api.availability(pair), AVAILABILITY_TIMEOUT_MS);
+    let availability: TranslatorAvailability;
+    try {
+      availability = await withTimeout(api.availability(pair), AVAILABILITY_TIMEOUT_MS);
+    } catch (caught) {
+      // A page whose Permissions-Policy turns the translator off (or a cross-origin frame).
+      if (caught instanceof DOMException && caught.name === "NotAllowedError") throw new Error(CHROME_TRANSLATOR_BLOCKED);
+      throw caught;
+    }
     if (availability === "unavailable") throw new Error(PAIR_UNAVAILABLE);
     try {
       return await api.create({

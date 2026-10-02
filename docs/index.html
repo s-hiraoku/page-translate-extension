@@ -68,16 +68,16 @@
     </nav>
 
     <h2 id="start">はじめに（3ステップ）</h2>
-    <p>必要なものは、Chrome 116以降と、翻訳サービスのAPIキーです。キーはご自身のものを使います（開発者の共有キーはありません）。</p>
+    <p>パソコン版のChrome 138以降なら、Chromeに内蔵の翻訳を使うので、APIキーなしで使えます。それより前のChrome（116以降）では、DeepLのAPIキーを登録して使います。</p>
     <ol class="steps">
       <li><strong>拡張機能をインストールする。</strong>Chromeウェブストアで「Page Translate」を追加します。ツールバーのパズルのアイコンから、Page Translate を「固定」しておくと、すぐ開けます。</li>
-      <li><strong>APIキーを登録する。</strong>ツールバーの Page Translate のアイコンを押すとサイドパネルが開きます。右上の歯車から設定を開き、「APIキー」に入力して「APIキーを保存」を押します。
+      <li><strong>翻訳する。</strong>翻訳したいページを開き、ツールバーの Page Translate のアイコンでサイドパネルを開いて、「このページを翻訳」を押します。初回だけ、Chromeの翻訳モデルのダウンロードがあり、進み具合が表示されます。</li>
+      <li><strong>必要ならAPIキーを登録する。</strong>右上の歯車から設定を開き、「APIキー」に入力して「APIキーを保存」を押します。キーはご自身のものを使います（開発者の共有キーはありません）。
         <ul>
-          <li><strong>DeepL</strong>（必須）：<a href="https://www.deepl.com/pro-api">DeepL API</a> のページでキーを発行します。無料プラン（DeepL API Free）のキーは末尾が <code>:fx</code> で、接続先は自動で判定されます。</li>
-          <li><strong>TypeSafe Jev</strong>（任意）：ページから翻訳する本文を選ぶサービスです。持っていなければ、設定の「翻訳する本文の判定」で「Jevを使わない」を選べば、DeepLのキーだけで使えます。</li>
+          <li><strong>DeepL</strong>：DeepLで翻訳したいとき、英作文を使うとき、Chrome 138より前のChromeで使うときに必要です。<a href="https://www.deepl.com/pro-api">DeepL API</a> のページでキーを発行します。無料プラン（DeepL API Free）のキーは末尾が <code>:fx</code> で、接続先は自動で判定されます。</li>
+          <li><strong>TypeSafe Jev</strong>（任意）：ページから翻訳する本文を選ぶサービスです。キーを登録すると使い、なければページ側のルールで本文を選びます。</li>
         </ul>
       </li>
-      <li><strong>翻訳する。</strong>翻訳したいページを開き、サイドパネルの「このページを翻訳」を押します。初めてのときだけ、文章を外部サービスへ送ることの確認が出るので、内容を読んで「同意して続ける」を選びます。</li>
     </ol>
     <div class="note"><p>APIキーはChromeのメモリ上にだけ保存されます。Chromeを終了したり、拡張機能を更新・再読み込みしたりすると消えるので、そのときはもう一度入力してください。</p></div>
 
@@ -148,7 +148,7 @@
     <h2 id="settings">設定</h2>
     <table>
       <tr><th>項目</th><th>内容</th></tr>
-      <tr><td>翻訳に使うサービス</td><td>「DeepL」（初期値）か「Chrome内蔵（試験的）」を選びます。Chrome内蔵は、パソコン版のChrome 138以降で使え、APIキーなしに、この端末の中で翻訳します（文章をDeepLへ送りません）。初回は翻訳モデルのダウンロードがあり、「このページを翻訳」を押すと始まります。試験的な機能のため、ページ内表示ではリンクなどの書式が外れ、「選択したら自動で翻訳」は使えません（パネルの「選択範囲翻訳」ボタンは使えます）。英作文はDeepLを使います。</td></tr>
+      <tr><td>翻訳に使うサービス</td><td>「Chrome内蔵」（初期値）か「DeepL」を選びます。Chrome内蔵は、パソコン版のChrome 138以降で使え、APIキーなしに、この端末の中で翻訳します（文章をDeepLへ送りません）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。それより前のChromeではDeepLで翻訳します。英作文はDeepLを使います。</td></tr>
       <tr><td>翻訳する本文の判定</td><td>「Jevを使う」（初期値）は、TypeSafe Jevが翻訳する本文を選びます。「Jevを使わない」は、ページ側のルールで除いた残りをすべてDeepLで翻訳します（Jevのキーは不要）。</td></tr>
       <tr><td>DeepLの接続先</td><td>「自動」のとき、キーの末尾が <code>:fx</code> なら無料用、それ以外は有料用に接続します。合わなければ手動で選べます。</td></tr>
       <tr><td>選択したら自動で翻訳</td><td>サイドパネルを閉じていても、文章を選ぶたびに自動で翻訳します（初期値はオフ）。</td></tr>
@@ -210,16 +210,16 @@
     <p class="lead">Page Translate is a Chrome extension that translates English and Japanese web pages and ties every translation to its place in the original text. It picks out the body text of a page, translates it, and draws a line (a connector) from the translation you select to its source.</p>
 
     <h2>Getting started (3 steps)</h2>
-    <p>You need Chrome 116 or later and an API key for the translation service. You use your own key; there is no shared key from the developer.</p>
+    <p>On desktop Chrome 138 or later, Chrome's built-in translator is used, so no API key is needed. On earlier versions (116 or later), register a DeepL API key.</p>
     <ol class="steps">
       <li><strong>Install the extension.</strong> Add “Page Translate” from the Chrome Web Store, and pin it from the puzzle-piece menu so it is one click away.</li>
-      <li><strong>Register your API key.</strong> Click the Page Translate icon to open the side panel, open Settings with the gear at the top right, type the key under “API key” and press “Save API keys”.
+      <li><strong>Translate.</strong> Open a page, click the Page Translate icon to open the side panel and press “Translate this page”. The first time, Chrome downloads its translation model and shows the progress.</li>
+      <li><strong>Register API keys if you need them.</strong> Open Settings with the gear at the top right. You use your own keys; there is no shared key from the developer.
         <ul>
-          <li><strong>DeepL</strong> (required): get a key from <a href="https://www.deepl.com/pro-api">DeepL API</a>. Free-plan keys end in <code>:fx</code>; the endpoint is detected automatically.</li>
-          <li><strong>TypeSafe Jev</strong> (optional): the service that chooses which text on the page to translate. If you do not have a key, choose “Don't use Jev” in Settings and the DeepL key alone is enough.</li>
+          <li><strong>DeepL</strong>: needed to translate with DeepL, for the writing tools, and on Chrome before 138. Get a key from <a href="https://www.deepl.com/pro-api">DeepL API</a>. Free-plan keys end in <code>:fx</code>; the endpoint is detected automatically.</li>
+          <li><strong>TypeSafe Jev</strong> (optional): chooses which text on the page to translate. It is used when its key is registered; otherwise local rules pick the body text.</li>
         </ul>
       </li>
-      <li><strong>Translate.</strong> Open a page and press “Translate this page” in the side panel. The first time, a screen explains that text is sent to external services; read it and choose to continue.</li>
     </ol>
     <div class="note"><p>API keys are kept only in Chrome's memory. They are cleared when Chrome quits or the extension is updated or reloaded; enter them again then.</p></div>
 

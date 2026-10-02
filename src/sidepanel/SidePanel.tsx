@@ -42,7 +42,8 @@ import {
   type CachedPage,
 } from "./cache";
 import { isInTargetLanguage, isMainProse } from "./rules";
-import { chromeTranslatorSupported, getChromeTranslator, setDownloadProgressListener, textToHtml, translateWithChrome } from "./chrome-translator";
+import { effectiveSettings } from "../shared/effective-settings";
+import { chromeTranslatorSupported, getChromeTranslator, setDownloadProgressListener, textToHtml, translateWithChrome } from "../shared/chrome-translator";
 import { applyTheme, cachedTheme } from "./theme";
 import { createScreenTopTracker } from "../shared/screen-top";
 
@@ -267,6 +268,17 @@ export function SidePanel() {
   const chromeSupported = useMemo(() => chromeTranslatorSupported(), []);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const providerStatusRef = useRef(providerStatus);
+  providerStatusRef.current = providerStatus;
+  /**
+   * The settings as they apply now: Jev only with its key, Chrome's translator only where this Chrome
+   * has one (else DeepL). Actions read this; the settings screen shows what the reader chose.
+   */
+  const currentSettings = (): ExtensionSettings => effectiveSettings(settingsRef.current, {
+    jevKey: providerStatusRef.current ? providerStatusRef.current.providers.jev : null,
+    chromeTranslator: chromeSupported,
+  });
+  const applied = effectiveSettings(settings, { jevKey: providerStatus ? providerStatus.providers.jev : null, chromeTranslator: chromeSupported });
   /** Bumped by every new scan so late results from the previous list are dropped. */
   const generationRef = useRef(0);
   // A finished scan (which also means data-use consent was given) enables page-click mode,
@@ -431,7 +443,7 @@ export function SidePanel() {
 
     try {
       // This runs from the port listener, so read the current settings through the ref.
-      const result = await translateSegmentsWith([entry], settingsRef.current);
+      const result = await translateSegmentsWith([entry], currentSettings());
       // A new scan reuses segment ids; never let this result land on its cards.
       if (generation !== generationRef.current) return;
       const translation = result.translations.find((item) => item.id === entry.id);
@@ -543,25 +555,31 @@ export function SidePanel() {
     // Straight from the click: the first use of Chrome's translator downloads its model, which
     // Chrome allows only right after a click. The translator is kept for the rest of the run.
     prepareChromeTranslator();
+    // Whether Jev's key is registered decides whether Jev is used: know it before going on.
+    if (!providerStatusRef.current) {
+      const status = await sendMessage<ProviderStatus>({ type: "CHECK_PROVIDERS" }).catch(() => null);
+      providerStatusRef.current = status;
+      setProviderStatus(status);
+    }
     return await consentForPage() ? runTranslation(fresh) : false;
   }
 
   /** Starts creating Chrome's translator while the click still counts; errors show up when it is used. */
   function prepareChromeTranslator(): void {
-    if (settingsRef.current.translationProvider !== "chrome") return;
+    if (currentSettings().translationProvider !== "chrome") return;
     setDownloadProgressListener((percent) => setStatus(`Chromeの翻訳モデルをダウンロードしています… ${percent}%`));
-    getChromeTranslator(settingsRef.current.targetLanguage).catch(() => undefined);
+    getChromeTranslator(currentSettings().targetLanguage).catch(() => undefined);
   }
 
   /** Page translation sends text out unless Chrome translates and Jev is off: then nothing leaves this device. */
   async function consentForPage(): Promise<boolean> {
-    const current = settingsRef.current;
+    const current = currentSettings();
     return current.translationProvider === "chrome" && !current.useJev ? true : ensureConsent();
   }
 
   /** Selection translation sends the text to DeepL; Chrome's translator keeps it on this device. */
   async function consentForSelection(): Promise<boolean> {
-    return settingsRef.current.translationProvider === "chrome" ? true : ensureConsent();
+    return currentSettings().translationProvider === "chrome" ? true : ensureConsent();
   }
 
   commandRef.current = (command) => void runCommand(command);
@@ -588,18 +606,19 @@ export function SidePanel() {
 
   /** Translates selected text and hands the result to the page's tooltip (`id` names the tooltip). */
   async function translateSelected(id: number, text: string): Promise<void> {
-    const current = settingsRef.current;
-    const report = (result: { text?: string; note?: string; error?: string }) =>
+    const current = currentSettings();
+    const report = (result: { text?: string; note?: string; error?: string; by?: string }) =>
       sendMessage({ type: "SELECTION_RESULT", id, ...result }).catch(() => undefined);
     if (isInTargetLanguage(text, current.targetLanguage)) {
       await report({ note: `選択した文章は、すでに${current.targetLanguage === "JA" ? "日本語" : "英語"}です。` });
       return;
     }
     const targetLang: ComposeLanguage = current.targetLanguage === "JA" ? "JA" : current.englishVariant;
-    const key = `${targetLang}\n${text}`;
+    const by = current.translationProvider === "chrome" ? "Chrome" : undefined;
+    const key = `${current.translationProvider}\n${targetLang}\n${text}`;
     const known = selectionCache.current.get(key);
     if (known !== undefined) {
-      await report({ text: known });
+      await report({ text: known, by });
       return;
     }
     try {
@@ -609,7 +628,7 @@ export function SidePanel() {
       selectionCache.current.set(key, result.text);
       // Keep the newest 50; a Map iterates in insertion order.
       if (selectionCache.current.size > 50) selectionCache.current.delete(selectionCache.current.keys().next().value as string);
-      await report({ text: result.text });
+      await report({ text: result.text, by });
     } catch (caught) {
       await report({ error: errorMessage(caught) });
     }
@@ -655,6 +674,7 @@ export function SidePanel() {
 
   /** With `fresh`, the cache is ignored (but still updated): translate the page again from scratch. */
   async function runTranslation(fresh = false): Promise<boolean> {
+    const settings = currentSettings();
     generationRef.current += 1;
     const generation = generationRef.current;
     let scannedPage = false;
@@ -847,7 +867,7 @@ export function SidePanel() {
   }
 
   async function requestTranslations(segments: CandidateSegment[]): Promise<Array<TranslationEntry & { translatedText: string; translatedHtml: string; state: "translated" }>> {
-    const result = await translateSegmentsWith(segments, settings);
+    const result = await translateSegmentsWith(segments, currentSettings());
     return result.translations.map((translation) => {
       const source = segments.find((segment) => segment.id === translation.id);
       if (!source) throw new Error("翻訳結果と文章の対応が取れませんでした。");
@@ -1024,15 +1044,15 @@ export function SidePanel() {
           <div className="mode-switch" role="radiogroup" aria-labelledby="provider-label">
             {([
               { value: "deepl", label: "DeepL" },
-              { value: "chrome", label: "Chrome内蔵（試験的）" },
+              { value: "chrome", label: "Chrome内蔵" },
             ] as const).map((option) => (
               <button
                 key={option.value}
                 type="button"
                 role="radio"
-                aria-checked={settings.translationProvider === option.value}
-                className={settings.translationProvider === option.value ? "active" : ""}
-                disabled={option.value === "chrome" && !chromeSupported && settings.translationProvider !== "chrome"}
+                aria-checked={applied.translationProvider === option.value}
+                className={applied.translationProvider === option.value ? "active" : ""}
+                disabled={option.value === "chrome" && !chromeSupported}
                 onClick={() => void persistSettings({ ...settings, translationProvider: option.value })}
               >
                 {option.label}
@@ -1041,9 +1061,9 @@ export function SidePanel() {
           </div>
           <p className="field-hint">
             {!chromeSupported
-              ? "このChromeでは内蔵の翻訳を使えません（パソコン版のChrome 138以降が必要です）。"
-              : settings.translationProvider === "chrome"
-                ? "Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。試験的な機能のため、ページ内表示ではリンクなどの書式が外れます。選択範囲翻訳のショートカットと右クリックはパネルを開いて翻訳し、「選択したら自動で翻訳」はまだ使えないので、パネルの「選択範囲翻訳」ボタンを使ってください。英作文はDeepLを使います。"
+              ? "このChromeでは内蔵の翻訳を使えないため、DeepLで翻訳します（Chrome内蔵の翻訳には、パソコン版のChrome 138以降が必要です）。"
+              : applied.translationProvider === "chrome"
+                ? "Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。英作文はDeepLを使います。"
                 : "DeepLで翻訳します。DeepLのAPIキーが必要です。"}
           </p>
 
@@ -1066,6 +1086,7 @@ export function SidePanel() {
             {settings.useJev
               ? "ページ側のルールで除いた残りをJevが確認し、本文だけを翻訳します。"
               : "Jevを使わず、ページ側のルールで除いた残りをすべて翻訳します。JevのAPIキーは不要です。"}
+            {settings.useJev && providerStatus && !providerStatus.providers.jev && "（JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します。）"}
           </p>
 
           <h3 className="settings-section" id="selection-auto-label">選択したら自動で翻訳</h3>
@@ -1329,10 +1350,10 @@ export function SidePanel() {
               <p>ナビゲーションや広告などを除いた本文を翻訳します。訳文を選ぶと、原文の位置までコネクタで結びます。</p>
               <ol className="steps">
                 <li><span>1</span>本文を抽出</li>
-                <li><span>2</span>{settings.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
-                <li><span>3</span>{settings.translationProvider === "chrome" ? "Chromeで翻訳" : "DeepLで翻訳"}</li>
+                <li><span>2</span>{applied.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
+                <li><span>3</span>{applied.translationProvider === "chrome" ? "Chromeで翻訳" : "DeepLで翻訳"}</li>
               </ol>
-              {settings.translationProvider === "deepl" && providerStatus && !providerStatus.providers.deepl && (
+              {applied.translationProvider === "deepl" && providerStatus && !providerStatus.providers.deepl && (
                 <p className="setup-hint">
                   はじめに、DeepLのAPIキーを登録してください（TypeSafe Jevは、設定でオフにすれば不要です）。
                   <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
@@ -1349,7 +1370,7 @@ export function SidePanel() {
           )}
 
           <footer className="panel-footer">
-            <span className="privacy"><Icon name="shield" />{privacySummary(settings)}</span>
+            <span className="privacy"><Icon name="shield" />{privacySummary(applied)}</span>
             <a className="text-button" href={GUIDE_URL} target="_blank" rel="noreferrer">使い方</a>
             {settings.displayMode === "inline" && translatedCount > 0 && (
               <button type="button" className="text-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>

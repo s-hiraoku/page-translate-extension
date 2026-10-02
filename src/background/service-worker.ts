@@ -13,9 +13,11 @@ const storageReady = restrictStorageToExtensionPages();
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   void storageReady.then(() => chrome.storage.local.get(SETTINGS_KEY)).then((stored) => {
-    if (!stored[SETTINGS_KEY]) {
-      return chrome.storage.local.set({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
-    }
+    const current = stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined;
+    // A new install translates with Chrome's built-in translator (no key needed). Someone who used the
+    // extension before it was the default keeps DeepL, so their translations do not change under them.
+    if (!current) return chrome.storage.local.set({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+    if (current.translationProvider === undefined) return chrome.storage.local.set({ [SETTINGS_KEY]: { ...current, translationProvider: "deepl" } });
     return undefined;
   });
   void createMenus();
@@ -51,8 +53,7 @@ async function readSettings(): Promise<ExtensionSettings> {
 
 /**
  * Whether Chrome's built-in translator is chosen, as last seen. It cannot run here (not in service
- * workers), so the shortcut and the menu hand selections to the side panel instead; knowing it
- * without an await lets them open the panel while the key press or click still counts.
+ * workers): the page translates selections itself, and no data-use consent is needed for that.
  */
 let chromeTranslatorChosen = false;
 void readSettings().catch(() => undefined);
@@ -72,6 +73,12 @@ async function deliverSelection(tabId: number, id: number, text: string): Promis
  * that only right after the key press, so it may refuse, and then the tooltip says what to do).
  */
 async function translateSelectionOnce(tabId: number, windowId: number | undefined): Promise<void> {
+  // Chrome's translator runs in the page. A page without one (an older Chrome) falls back to DeepL.
+  if (chromeTranslatorChosen) {
+    const { targetLanguage } = await readSettings();
+    const local = await sendToTab<{ handled?: boolean }>(tabId, { type: "TRANSLATE_SELECTION_LOCALLY", targetLanguage }).catch(() => null);
+    if (local?.handled) return;
+  }
   const read = await sendToTab<ReadSelectionResult>(tabId, { type: "READ_SELECTION" }).catch(() => null);
   if (!read || read.empty) return;
   if (await hasConsent()) {
@@ -104,8 +111,7 @@ async function createMenus(): Promise<void> {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === MENU_TRANSLATE && tab?.id !== undefined) {
-    if (chromeTranslatorChosen && tab.windowId !== undefined) void openPanelFor("translate-selection", tab.windowId);
-    else void translateSelectionOnce(tab.id, tab.windowId);
+    void translateSelectionOnce(tab.id, tab.windowId);
   } else if (info.menuItemId === MENU_AUTO) {
     void readSettings().then((settings) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, selectionAutoTranslate: info.checked === true } }));
   }
@@ -134,8 +140,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.commands.onCommand.addListener((command, tab) => {
   if (!isPanelCommand(command) || tab?.windowId === undefined) return;
   const windowId = tab.windowId;
-  // Selection translation runs without the panel, unless consent is missing and the panel has to ask.
-  if (command === "translate-selection" && tab.id !== undefined && consentKnown !== false && !chromeTranslatorChosen) {
+  // Selection translation runs without the panel, unless DeepL needs consent and the panel has to ask.
+  if (command === "translate-selection" && tab.id !== undefined && (consentKnown !== false || chromeTranslatorChosen)) {
     void translateSelectionOnce(tab.id, windowId);
     return;
   }
@@ -210,8 +216,11 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       await deliverSelection(tabId, message.id, message.text);
       return { ok: true };
     }
-    case "GET_SELECTION_AUTO":
-      return { enabled: sender.tab !== undefined && (await readSettings()).selectionAutoTranslate };
+    case "GET_SELECTION_AUTO": {
+      // The page also learns who translates: with Chrome's translator it translates by itself.
+      const settings = await readSettings();
+      return { enabled: sender.tab !== undefined && settings.selectionAutoTranslate, provider: settings.translationProvider, targetLanguage: settings.targetLanguage };
+    }
     case "OPEN_SIDE_PANEL":
       return undefined;
   }

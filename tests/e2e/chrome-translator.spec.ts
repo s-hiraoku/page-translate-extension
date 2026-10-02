@@ -13,19 +13,19 @@ async function openPanel(page: Page, options: MockOptions = {}): Promise<void> {
 const providerSwitch = (page: Page) => page.getByRole("radiogroup", { name: "翻訳に使うサービス" });
 
 test.describe("choosing the translation service", () => {
-  test("DeepL is the default; Chrome's translator cannot be chosen where Chrome has none", async ({ page }) => {
+  test("falls back to DeepL, and Chrome cannot be chosen, where Chrome has no translator", async ({ page }) => {
     await openPanel(page);
     await page.getByRole("button", { name: "設定を開く" }).click();
     await expect(providerSwitch(page).getByRole("radio", { name: "DeepL" })).toHaveAttribute("aria-checked", "true");
-    await expect(providerSwitch(page).getByRole("radio", { name: "Chrome内蔵（試験的）" })).toBeDisabled();
-    await expect(page.getByText("このChromeでは内蔵の翻訳を使えません")).toBeVisible();
+    await expect(providerSwitch(page).getByRole("radio", { name: "Chrome内蔵" })).toBeDisabled();
+    await expect(page.getByText("このChromeでは内蔵の翻訳を使えない")).toBeVisible();
   });
 
   test("Chrome's translator can be chosen where Chrome has one", async ({ page }) => {
     await openPanel(page, { translator: "available" });
     await page.getByRole("button", { name: "設定を開く" }).click();
-    await providerSwitch(page).getByRole("radio", { name: "Chrome内蔵（試験的）" }).click();
-    await expect(providerSwitch(page).getByRole("radio", { name: "Chrome内蔵（試験的）" })).toHaveAttribute("aria-checked", "true");
+    await providerSwitch(page).getByRole("radio", { name: "Chrome内蔵" }).click();
+    await expect(providerSwitch(page).getByRole("radio", { name: "Chrome内蔵" })).toHaveAttribute("aria-checked", "true");
     await expect(page.getByText("この端末の中で翻訳します")).toBeVisible();
   });
 });
@@ -93,5 +93,25 @@ test.describe("selection translation with Chrome's translator", () => {
 
     await expect.poll(() => page.evaluate(() => (window as unknown as { __sent: Array<{ type: string; id?: number; text?: string }> }).__sent.filter((m) => m.type === "SELECTION_RESULT"))).toMatchObject([{ id: 3, text: "[Chrome ja] The tide rises." }]);
     expect(await sentTypes(page)).not.toContain("TRANSLATE_SELECTION");
+  });
+});
+
+test.describe("Jev is used only with its key", () => {
+  test("translates without Jev, and says so in Settings, when only Jev's key is missing", async ({ page }) => {
+    await openPanel(page, { providers: { jev: false, deepl: true }, settings: { translationProvider: "deepl", useJev: true } });
+    await page.locator(".translate-button").click();
+    await expect(page.locator(".entry-card").first()).toBeVisible();
+    expect(await sentTypes(page)).not.toContain("CLASSIFY_CANDIDATES");
+
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await expect(page.getByText("JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します")).toBeVisible();
+  });
+
+  test("with no key at all and Chrome's translator, translates on this device without asking anything", async ({ page }) => {
+    await openPanel(page, { translator: "available", consent: null, providers: { jev: false, deepl: false } });
+    await page.locator(".translate-button").click();
+    await expect(page.locator(".entry-translation").first()).toContainText("[Chrome ja]");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await sentTypes(page)).not.toContain("CLASSIFY_CANDIDATES");
   });
 });
