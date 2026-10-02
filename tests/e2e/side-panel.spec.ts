@@ -464,3 +464,51 @@ test.describe("the writing tab needs a DeepL key", () => {
     await expect(composeTab(page)).toHaveAttribute("aria-disabled", "true");
   });
 });
+
+test.describe("settings explanations", () => {
+  const openSettings = (page: Page) => page.getByRole("button", { name: "設定を開く" }).click();
+  const helpButton = (page: Page, label: string) => page.getByRole("button", { name: `${label}の説明` });
+
+  test("stay folded until the ⓘ button is pressed, and fold again when the settings reopen", async ({ page }) => {
+    await openPanel(page);
+    await openSettings(page);
+    const labels = ["キーボードショートカット", "翻訳に使うサービス", "翻訳する本文の判定", "選択したら自動で翻訳", "翻訳のキャッシュ"];
+    for (const label of labels) {
+      await expect(helpButton(page, label)).toHaveAttribute("aria-expanded", "false");
+    }
+    await expect(page.locator(".help-text:visible")).toHaveCount(0);
+
+    await helpButton(page, "選択したら自動で翻訳").click();
+    await expect(helpButton(page, "選択したら自動で翻訳")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#selection-auto-label-help")).toBeVisible();
+    await expect(page.locator("#selection-auto-label-help")).toContainText("パネルを閉じていても");
+    // Only the one asked for opens.
+    await expect(page.locator(".help-text:visible")).toHaveCount(1);
+
+    await helpButton(page, "選択したら自動で翻訳").click();
+    await expect(page.locator("#selection-auto-label-help")).toBeHidden();
+
+    await helpButton(page, "翻訳のキャッシュ").click();
+    await page.getByLabel("翻訳画面に戻る").click();
+    await openSettings(page);
+    await expect(page.locator(".help-text:visible")).toHaveCount(0);
+  });
+
+  test("explain both choices whichever is selected, and no longer say selection translation is DeepL only", async ({ page }) => {
+    await openPanel(page);
+    await openSettings(page);
+    await helpButton(page, "翻訳に使うサービス").click();
+    await expect(page.locator("#provider-label-help")).toContainText("Chrome内蔵");
+    await expect(page.locator("#provider-label-help")).toContainText("DeepLのAPIキーが必要です");
+    await helpButton(page, "選択したら自動で翻訳").click();
+    await expect(page.locator("#selection-auto-label-help")).not.toContainText("DeepLだけ");
+    await expect(page.locator(".settings-page")).not.toContainText("翻訳にはDeepLを使います");
+  });
+
+  test("a warning about the current state shows without opening anything", async ({ page }) => {
+    await openPanel(page, { providers: { jev: false, deepl: true }, settings: { useJev: true } });
+    await openSettings(page);
+    await expect(page.locator(".setting-alert", { hasText: "JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します" })).toBeVisible();
+    await expect(page.locator(".help-text:visible")).toHaveCount(0);
+  });
+});

@@ -26,6 +26,9 @@ test.describe("choosing the translation service", () => {
     await page.getByRole("button", { name: "設定を開く" }).click();
     await providerSwitch(page).getByRole("radio", { name: "Chrome内蔵" }).click();
     await expect(providerSwitch(page).getByRole("radio", { name: "Chrome内蔵" })).toHaveAttribute("aria-checked", "true");
+    // The explanation is folded until asked for, and there is nothing to warn about.
+    await expect(page.locator(".setting-alert")).toHaveCount(0);
+    await page.getByRole("button", { name: "翻訳に使うサービスの説明" }).click();
     await expect(page.getByText("この端末の中で翻訳します")).toBeVisible();
   });
 });

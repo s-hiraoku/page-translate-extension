@@ -117,11 +117,11 @@
     </table>
     <p>ページクリックがオンのあいだは、どちらも一時的に止まります（設定は変わりません）。</p>
     <ul>
-      <li>翻訳にはDeepLだけを使います（Jevは使いません）。</li>
+      <li>翻訳には、設定の「翻訳に使うサービス」を使います（Jevは使いません）。Chrome内蔵なら、パネルを閉じていてもページの中で翻訳します。</li>
       <li>翻訳先は、パネルの「日本語へ / 英語へ」に従います。すでに翻訳先の言語の文章は、翻訳しません。</li>
       <li>1回に翻訳できるのは5,000文字までです。</li>
       <li>iframeの中、入力欄の中、PDFビューアなどでは使えません。</li>
-      <li>初めて使うときは、データ送信への同意が必要です。パネルを閉じているときは、ツールチップの案内に従って、パネルを開いて同意してください。</li>
+      <li>DeepLで翻訳する場合、初めて使うときは、データ送信への同意が必要です。パネルを閉じているときは、ツールチップの案内に従って、パネルを開いて同意してください。Chrome内蔵では、文章を外部へ送らないので同意は不要です。</li>
     </ul>
 
     <h2 id="compose">英作文をチェックする</h2>
@@ -146,10 +146,11 @@
     <p>キーを変えたいときは、設定の「ショートカットを変更」から、Chromeの <code>chrome://extensions/shortcuts</code> を開いて設定します。ほかの拡張機能と同じキーは割り当てられず、設定に「未設定」と出ます。</p>
 
     <h2 id="settings">設定</h2>
+    <p>各項目の説明は、見出しの横の「ⓘ」を押すと表示されます。</p>
     <table>
       <tr><th>項目</th><th>内容</th></tr>
       <tr><td>翻訳に使うサービス</td><td>「Chrome内蔵」（初期値）か「DeepL」を選びます。Chrome内蔵は、パソコン版のChrome 138以降で使え、APIキーなしに、この端末の中で翻訳します（文章をDeepLへ送りません）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。それより前のChromeではDeepLで翻訳します。英作文はDeepLを使います。</td></tr>
-      <tr><td>翻訳する本文の判定</td><td>「Jevを使う」（初期値）は、TypeSafe Jevが翻訳する本文を選びます。「Jevを使わない」は、ページ側のルールで除いた残りをすべてDeepLで翻訳します（Jevのキーは不要）。</td></tr>
+      <tr><td>翻訳する本文の判定</td><td>「Jevを使う」（初期値）は、TypeSafe Jevが翻訳する本文を選びます。「Jevを使わない」は、ページ側のルールで除いた残りをすべて翻訳します（Jevのキーは不要）。</td></tr>
       <tr><td>DeepLの接続先</td><td>「自動」のとき、キーの末尾が <code>:fx</code> なら無料用、それ以外は有料用に接続します。合わなければ手動で選べます。</td></tr>
       <tr><td>選択したら自動で翻訳</td><td>サイドパネルを閉じていても、文章を選ぶたびに自動で翻訳します（初期値はオフ）。</td></tr>
       <tr><td>翻訳のキャッシュ</td><td>翻訳したページの結果を、この端末の拡張機能の中だけに、1・3・24時間（初期値3時間）保存します。「キャッシュを削除」で消せます。</td></tr>
@@ -164,7 +165,7 @@
     </details>
     <details>
       <summary>翻訳を押しても何も起きない・「APIキーが未設定」と出る</summary>
-      <p>設定でDeepLのAPIキーを登録したか確認してください。キーはChromeを終了すると消えるので、起動し直したあとは再入力が必要です。「Jevを使う」設定のときは、TypeSafe Jevのキーも必要です（持っていなければ「Jevを使わない」を選びます）。</p>
+      <p>DeepLで翻訳する設定なら、DeepLのAPIキーを登録したか確認してください。キーはChromeを終了すると消えるので、起動し直したあとは再入力が必要です。APIキーなしで使うなら、設定の「翻訳に使うサービス」を「Chrome内蔵」にします（パソコン版のChrome 138以降）。TypeSafe Jevは、キーを登録したときだけ使います。</p>
     </details>
     <details>
       <summary>日本語のページ、または一部の文章が翻訳されない</summary>
@@ -197,8 +198,8 @@
 
     <h2 id="privacy">データの扱い</h2>
     <ul>
-      <li>翻訳を始めると、ページから取り出した文章とページタイトルがTypeSafe Jevへ、翻訳する文章がDeepLへ送られます。「Jevを使わない」設定のときは、DeepLだけへ送ります。</li>
-      <li>選択範囲翻訳と英作文は、DeepLだけへ送ります。</li>
+      <li>翻訳を始めると、ページから取り出した文章とページタイトルがTypeSafe Jevへ、翻訳する文章がDeepLへ送られます。「Jevを使わない」設定のときは、DeepLだけへ送ります。翻訳に使うサービスが「Chrome内蔵」なら、翻訳はこの端末の中で行い、DeepLへは送りません。</li>
+      <li>選択範囲翻訳は、翻訳に使うサービスがDeepLのときだけDeepLへ送ります。英作文は、DeepLだけへ送ります。</li>
       <li>開発者が運営するサーバーはありません。ページの文章、APIキー、翻訳結果は、開発者へは届きません。</li>
       <li>個人情報や機密情報を含む文章を翻訳するときは、ご利用のAPIプランの条件を確認してください。</li>
     </ul>
@@ -241,7 +242,7 @@
       <li><strong>Every time you select:</strong> tick “選択したら自動で翻訳” (Translate as I select) in the page's right-click menu, or set it to On in Settings. It is off by default.</li>
       <li><strong>With the panel:</strong> the “Selection translation” button in the panel turns the mode on only while the panel is open.</li>
     </ul>
-    <p>Only DeepL is used. Text already in the target language is not translated, and up to 5,000 characters can be translated at a time. It does not work inside iframes, form fields or the PDF viewer. The first time, you must agree to the data use; if the panel is closed, follow the hint in the tooltip and agree in the panel.</p>
+    <p>The translation service chosen in Settings is used (Jev is not). With Chrome's built-in translator, it translates in the page even when the panel is closed. Text already in the target language is not translated, and up to 5,000 characters can be translated at a time. It does not work inside iframes, form fields or the PDF viewer. With DeepL, the first time you must agree to the data use; if the panel is closed, follow the hint in the tooltip and agree in the panel. Chrome's built-in translator sends nothing out, so no agreement is needed.</p>
 
     <h2>Check your English writing</h2>
     <p>The “Writing” tab needs a DeepL API key: until one is registered it is greyed out, and clicking it explains how to register one. It has two tools. “Check my English” shows what your English conveys (a back-translation), a model translation of what you meant compared with your sentence, and — with a paid DeepL key — a DeepL Write correction. “Japanese to English” turns what you write in Japanese into English, with its back-translation and, with a paid key, a version in the style you choose.</p>
@@ -257,7 +258,7 @@
 
     <h2>Troubleshooting</h2>
     <details><summary>“Could not connect to this page”</summary><p>Pages that were open before the extension was installed or updated need a reload. Extension pages such as <code>chrome://</code> and the Chrome Web Store cannot be translated.</p></details>
-    <details><summary>Nothing happens, or “API key not set”</summary><p>Check that the DeepL key is registered in Settings. Keys are cleared when Chrome quits. With “Use Jev” on, a TypeSafe Jev key is needed too; otherwise choose “Don't use Jev”.</p></details>
+    <details><summary>Nothing happens, or “API key not set”</summary><p>If you translate with DeepL, check that the DeepL key is registered in Settings. Keys are cleared when Chrome quits. To use no API key, set the translation service in Settings to Chrome's built-in translator (desktop Chrome 138 or later). TypeSafe Jev is used only when its key is registered.</p></details>
     <details><summary>A shortcut does nothing</summary><p>If Settings shows “Not set”, another extension or Chrome itself uses that key. Assign another at <code>chrome://extensions/shortcuts</code>.</p></details>
     <details><summary>The selection tooltip does not appear</summary><p>It is not available in iframes, form fields or the PDF viewer, and selections under two characters or made only of digits and symbols are skipped. The first use needs your agreement to the data use.</p></details>
     <details><summary>Automatic selection translation stops working after an update</summary><p>Pages that were open before the update still run the old version: reload them. An update also clears your API keys, so register the DeepL key again. The panel's “Selection translation” button turns off when the panel closes; to keep translating with the panel closed, turn on “Translate as I select” in Settings or the right-click menu.</p></details>
@@ -265,7 +266,7 @@
     <details><summary>Anything else</summary><p>Please open an issue on <a href="https://github.com/s-hiraoku/page-translate-extension/issues">GitHub</a>.</p></details>
 
     <h2>Your data</h2>
-    <p>When you translate a page, the text extracted from it and the page title go to TypeSafe Jev, and the text to translate goes to DeepL (only DeepL with “Don't use Jev”). Selection translation and the writing tools use DeepL only. There is no server run by the developer, and page text, API keys and translations never reach the developer. See the <a href="privacy.html#en">privacy policy</a>.</p>
+    <p>When you translate a page, the text extracted from it and the page title go to TypeSafe Jev, and the text to translate goes to DeepL (only DeepL with “Don't use Jev”). With Chrome's built-in translator, translation happens on this device and nothing goes to DeepL. Selection translation sends text to DeepL only when DeepL is the chosen service; the writing tools use DeepL only. There is no server run by the developer, and page text, API keys and translations never reach the developer. See the <a href="privacy.html#en">privacy policy</a>.</p>
     </div>
     <footer>Page Translate · <a href="privacy.html">プライバシーポリシー / Privacy Policy</a> · <a href="https://github.com/s-hiraoku/page-translate-extension">GitHub</a></footer>
   </main>

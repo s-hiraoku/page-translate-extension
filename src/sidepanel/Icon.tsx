@@ -7,6 +7,13 @@ const paths = {
     </>
   ),
   back: <path d="m15 18-6-6 6-6" />,
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 7.5h.01" />
+    </>
+  ),
   translate: (
     <>
       <path d="m5 8 6 6" />

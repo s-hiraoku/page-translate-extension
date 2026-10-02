@@ -136,6 +136,16 @@ export function SidePanel() {
   // The tab the results and modes belong to; switching to another tab in this window clears them.
   const boundTabRef = useRef<number | null>(null);
   const panelTopRef = useRef<HTMLDivElement | null>(null);
+  // Which settings explanations are unfolded; they start folded each time the settings open.
+  const [openHelp, setOpenHelp] = useState<ReadonlySet<string>>(() => new Set());
+  const help: HelpState = {
+    isOpen: (id) => openHelp.has(id),
+    toggle: (id) => setOpenHelp((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    }),
+  };
 
   // The results heading sticks right under the fixed controls, whose height changes with notes and modes.
   useEffect(() => {
@@ -1009,7 +1019,7 @@ export function SidePanel() {
           type="button"
           aria-label={settingsOpen ? "翻訳画面に戻る" : "設定を開く"}
           aria-pressed={settingsOpen}
-          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) { void checkProviders(); void loadShortcuts(); void refreshCacheInfo(); } }}
+          onClick={() => { const open = !settingsOpen; setSettingsOpen(open); if (open) { setOpenHelp(new Set()); void checkProviders(); void loadShortcuts(); void refreshCacheInfo(); } }}
         >
           <Icon name="settings" />
         </button>
@@ -1114,7 +1124,6 @@ export function SidePanel() {
           </button>
           <p className="eyebrow">Settings</p>
           <h2 id="settings-title">設定</h2>
-          <p className="settings-intro">表示テーマと、翻訳に使うサービスを設定します。翻訳にはDeepLを使います。翻訳する本文の判定にTypeSafe Jevを使うかどうかも選べます。</p>
 
           <h3 className="settings-section" id="theme-label">表示テーマ</h3>
           <div className="mode-switch theme-switch" role="radiogroup" aria-labelledby="theme-label">
@@ -1132,7 +1141,9 @@ export function SidePanel() {
             ))}
           </div>
 
-          <h3 className="settings-section">キーボードショートカット</h3>
+          <SettingHeading id="shortcut-label" label="キーボードショートカット" help={help}>
+            Chromeの拡張機能のショートカット設定で変更できます。ほかの拡張機能と重なっているキーは割り当てられず「未設定」になります。
+          </SettingHeading>
           <dl className="shortcut-list">
             {shortcutRows.map((row) => (
               <div key={row.command}>
@@ -1144,9 +1155,12 @@ export function SidePanel() {
           <button className="text-button" type="button" onClick={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })}>
             <Icon name="settings" />ショートカットを変更
           </button>
-          <p className="field-hint">Chromeの拡張機能のショートカット設定で変更できます。ほかの拡張機能と重なっているキーは割り当てられず「未設定」になります。</p>
 
-          <h3 className="settings-section" id="provider-label">翻訳に使うサービス</h3>
+          <SettingHeading id="provider-label" label="翻訳に使うサービス" help={help}>
+            <b>Chrome内蔵</b>：Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。パソコン版のChrome 138以降で使えます。<br />
+            <b>DeepL</b>：DeepLで翻訳します。DeepLのAPIキーが必要です。<br />
+            英作文は、どちらを選んでもDeepLを使います。
+          </SettingHeading>
           <div className="mode-switch" role="radiogroup" aria-labelledby="provider-label">
             {([
               { value: "deepl", label: "DeepL" },
@@ -1165,15 +1179,14 @@ export function SidePanel() {
               </button>
             ))}
           </div>
-          <p className="field-hint">
-            {!chromeSupported
-              ? "このChromeでは内蔵の翻訳を使えないため、DeepLで翻訳します（Chrome内蔵の翻訳には、パソコン版のChrome 138以降が必要です）。"
-              : applied.translationProvider === "chrome"
-                ? "Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。英作文はDeepLを使います。"
-                : "DeepLで翻訳します。DeepLのAPIキーが必要です。"}
-          </p>
+          {!chromeSupported && (
+            <p className="setting-alert"><Icon name="alert" />このChromeでは内蔵の翻訳を使えないため、DeepLで翻訳します（パソコン版のChrome 138以降が必要です）。</p>
+          )}
 
-          <h3 className="settings-section" id="jev-label">翻訳する本文の判定</h3>
+          <SettingHeading id="jev-label" label="翻訳する本文の判定" help={help}>
+            <b>Jevを使う</b>：ページ側のルールで除いた残りをTypeSafe Jevが確認し、本文だけを翻訳します。JevのAPIキーが必要です。<br />
+            <b>Jevを使わない</b>：ページ側のルールで除いた残りをすべて翻訳します。
+          </SettingHeading>
           <div className="mode-switch" role="radiogroup" aria-labelledby="jev-label">
             {jevOptions.map((option) => (
               <button
@@ -1188,14 +1201,13 @@ export function SidePanel() {
               </button>
             ))}
           </div>
-          <p className="field-hint">
-            {settings.useJev
-              ? "ページ側のルールで除いた残りをJevが確認し、本文だけを翻訳します。"
-              : "Jevを使わず、ページ側のルールで除いた残りをすべて翻訳します。JevのAPIキーは不要です。"}
-            {settings.useJev && providerStatus && !providerStatus.providers.jev && "（JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します。）"}
-          </p>
+          {settings.useJev && providerStatus && !providerStatus.providers.jev && (
+            <p className="setting-alert"><Icon name="alert" />JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します。</p>
+          )}
 
-          <h3 className="settings-section" id="selection-auto-label">選択したら自動で翻訳</h3>
+          <SettingHeading id="selection-auto-label" label="選択したら自動で翻訳" help={help}>
+            オンにすると、パネルを閉じていても、ページで文章を選ぶだけで、その場のツールチップに翻訳を表示します。翻訳画面の「選択範囲翻訳」ボタンは、パネルを開いているあいだだけ動く別のスイッチで、どちらかがオンなら翻訳します。ページ上の右クリックメニューからも切り替えられます。拡張機能を更新した直後は、開いていたページを再読み込みしてください。
+          </SettingHeading>
           <div className="mode-switch" role="radiogroup" aria-labelledby="selection-auto-label">
             {([true, false] as const).map((value) => (
               <button
@@ -1210,11 +1222,11 @@ export function SidePanel() {
               </button>
             ))}
           </div>
-          <p className="field-hint">
-            オンにすると、パネルを閉じていても、ページで文章を選ぶだけで、その場のツールチップに翻訳を表示します（DeepLだけを使います）。翻訳画面の「選択範囲翻訳」ボタンは、パネルを開いているあいだだけ動く別のスイッチです。どちらかがオンなら翻訳します。ページ上の右クリックメニューからも切り替えられます。拡張機能を更新した直後は、開いていたページを再読み込みしてください。
-          </p>
 
-          <h3 className="settings-section" id="cache-label">翻訳のキャッシュ</h3>
+          <SettingHeading id="cache-label" label="翻訳のキャッシュ" help={help}>
+            <b>保存する</b>：翻訳したページの結果を、この端末の拡張機能の中だけに保存し、同じページを開いたときに再利用します。ページの本文が変わっていた部分は翻訳し直します。外部へは送信しません。<br />
+            <b>保存しない</b>：翻訳結果を保存せず、保存済みの内容も削除します。
+          </SettingHeading>
           <div className="mode-switch" role="radiogroup" aria-labelledby="cache-label">
             {([true, false] as const).map((value) => (
               <button
@@ -1237,11 +1249,6 @@ export function SidePanel() {
               </select>
             </>
           )}
-          <p className="field-hint">
-            {settings.cacheEnabled
-              ? "翻訳したページの結果を、この端末の拡張機能の中だけに保存し、同じページを開いたときに再利用します。ページの本文が変わっていた部分は翻訳し直します。外部へは送信しません。"
-              : "翻訳結果を保存しません。保存済みの内容は削除しました。"}
-          </p>
           {settings.cacheEnabled && (
             <button className="text-button" type="button" onClick={() => void clearCache()} disabled={cacheInfo.pages === 0}>
               <Icon name="trash" />キャッシュを削除（{cacheInfo.pages}ページ）
@@ -1517,6 +1524,32 @@ const ADDING = "翻訳しています…";
 
 function nextPaint(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+type HelpState = { isOpen: (id: string) => boolean; toggle: (id: string) => void };
+
+/** A settings heading whose explanation stays folded until the reader asks for it with the ⓘ button. */
+function SettingHeading({ id, label, help, children }: { id: string; label: string; help: HelpState; children: React.ReactNode }) {
+  const open = help.isOpen(id);
+  return (
+    <>
+      <div className="settings-heading">
+        <h3 className="settings-section" id={id}>{label}</h3>
+        <button
+          type="button"
+          className={`help-toggle ${open ? "active" : ""}`}
+          aria-expanded={open}
+          aria-controls={`${id}-help`}
+          aria-label={`${label}の説明`}
+          title={open ? "説明を閉じる" : "説明を表示"}
+          onClick={() => help.toggle(id)}
+        >
+          <Icon name="info" />
+        </button>
+      </div>
+      <p className="field-hint help-text" id={`${id}-help`} hidden={!open}>{children}</p>
+    </>
+  );
 }
 
 function deeplEndpointHint(endpoint: DeepLEndpoint, plan: DeepLPlan | null): string {
