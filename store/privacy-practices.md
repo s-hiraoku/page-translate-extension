@@ -40,3 +40,4 @@ Suggested Limited Use statement:
 - The required host permissions are limited to TypeSafe Jev and DeepL endpoints.
 - There is no remote code, developer-controlled API, analytics SDK, advertising SDK, or account login.
 - Do not mark the product as collecting no user data: it handles website content and authentication information, even though the developer does not receive the provider requests.
+- Chrome's built-in translator (the default for new installs): page text and selections are translated on the device by Chrome's Translator API and are not sent to DeepL; with Jev unused, nothing is sent anywhere.

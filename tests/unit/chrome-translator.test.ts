@@ -9,7 +9,7 @@ import {
   setDownloadProgressListener,
   textToHtml,
   translateWithChrome,
-} from "../../src/sidepanel/chrome-translator";
+} from "../../src/shared/chrome-translator";
 
 const global = globalThis as { Translator?: unknown };
 

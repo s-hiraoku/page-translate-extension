@@ -10,8 +10,6 @@ export interface SelectionDeps {
   translate(text: string, targetLang: ComposeLanguage): Promise<{ text: string }>;
 }
 
-/** Chrome's built-in translator cannot run in the service worker, which translates here. */
-export const CHROME_PANEL_ONLY_NOTE = "Chrome内蔵の翻訳（試験的）は、いまはサイドパネルを開いているときだけ使えます。パネルの「選択範囲翻訳」ボタンを使ってください。";
 export const CONSENT_NOTE = "初めて使うときは、拡張機能のアイコンからパネルを開き、データ送信への同意をしてください。";
 const CACHE_LIMIT = 50;
 
@@ -26,9 +24,9 @@ export function createSelectionTranslator(deps: SelectionDeps) {
   return async function translateSelection(text: string): Promise<SelectionOutcome> {
     try {
       if (text.length > SELECTION_MAX_CHARS) return { note: `一度に翻訳できるのは${SELECTION_MAX_CHARS.toLocaleString("ja-JP")}文字までです。` };
-      const settings = await deps.settings();
-      if (settings.translationProvider === "chrome") return { note: CHROME_PANEL_ONLY_NOTE };
+      // Reached with DeepL only: with Chrome's translator the page translates, unless its Chrome has none.
       if (!(await deps.hasConsent())) return { note: CONSENT_NOTE };
+      const settings = await deps.settings();
       if (isInTargetLanguage(text, settings.targetLanguage)) {
         return { note: `選択した文章は、すでに${settings.targetLanguage === "JA" ? "日本語" : "英語"}です。` };
       }

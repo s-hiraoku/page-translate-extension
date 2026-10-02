@@ -95,8 +95,9 @@ export interface ExtensionSettings {
   /** Translate text as it is selected on any page, with the side panel closed too. */
   selectionAutoTranslate: boolean;
   /**
-   * Who translates: DeepL (sent over the network), or Chrome's built-in translator (Chrome 138+
-   * desktop, runs on this device; experimental, used from the side panel only for now).
+   * Who translates: Chrome's built-in translator (desktop Chrome 138+, runs on this device, no key;
+   * the default for new installs, falling back to DeepL where Chrome has none) or DeepL (sent over
+   * the network). Installs from before it existed keep DeepL.
    */
   translationProvider: TranslationProvider;
 }
@@ -120,7 +121,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   cacheEnabled: true,
   cacheTtlHours: 3,
   selectionAutoTranslate: false,
-  translationProvider: "deepl",
+  translationProvider: "chrome",
 };
 
 export type ExtensionMessage =

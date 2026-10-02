@@ -27,7 +27,7 @@ test.describe("translating as text is selected, with the panel closed", () => {
 
   const setAuto = (driver: Page, enabled: boolean, consent: boolean) => driver.evaluate(async ({ enabled, consent, SETTINGS_KEY, CONSENT_KEY }) => {
     const stored = await chrome.storage.local.get(SETTINGS_KEY);
-    await chrome.storage.local.set({ [SETTINGS_KEY]: { ...(stored[SETTINGS_KEY] ?? {}), selectionAutoTranslate: enabled } });
+    await chrome.storage.local.set({ [SETTINGS_KEY]: { ...(stored[SETTINGS_KEY] ?? {}), selectionAutoTranslate: enabled, translationProvider: "deepl" } });
     if (consent) await chrome.storage.local.set({ [CONSENT_KEY]: 2 });
   }, { enabled, consent, SETTINGS_KEY, CONSENT_KEY });
 
