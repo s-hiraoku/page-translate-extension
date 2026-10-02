@@ -66,6 +66,7 @@ const jevOptions: Array<{ value: boolean; label: string }> = [
   { value: false, label: "Jevを使わない" },
 ];
 
+const COMPOSE_NEEDS_DEEPL = "英作文機能を使うには、設定でDeepLのAPIキーを登録してください。";
 const INITIAL_STATUS = "ページを開いて「このページを翻訳」を押してください。";
 /** The user guide (GitHub Pages, built from docs/). */
 const GUIDE_URL = "https://s-hiraoku.github.io/page-translate-extension/";
@@ -109,6 +110,8 @@ export function SidePanel() {
   const [consentOpen, setConsentOpen] = useState(false);
   const consentResolver = useRef<((agreed: boolean) => void) | null>(null);
   const [view, setView] = useState<"translate" | "compose">("translate");
+  /** Shown after the reader tries the writing tab without a DeepL key. */
+  const [composeHint, setComposeHint] = useState(false);
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
   /**
@@ -242,6 +245,15 @@ export function SidePanel() {
   useEffect(() => {
     void sendMessage<ProviderStatus>({ type: "CHECK_PROVIDERS" }).then(setProviderStatus, () => undefined);
   }, []);
+
+  // The writing check runs on DeepL only. Until the key check answers, the tab stays as it is
+  // (no flicker); without a key it is shown locked, and a reader on it (the key was just removed)
+  // goes back to page translation.
+  const composeLocked = providerStatus !== null && !providerStatus.providers.deepl;
+  useEffect(() => {
+    if (composeLocked && view === "compose") setView("translate");
+    if (!composeLocked) setComposeHint(false);
+  }, [composeLocked, view]);
 
   const pickable = useMemo(
     () => visibleEntries.flatMap((entry, index) => entry.state === "translated" ? [{ id: entry.id, label: String(index + 1), color: entryColor(index) }] : []),
@@ -1150,10 +1162,24 @@ export function SidePanel() {
             <button type="button" role="tab" aria-selected={view === "translate"} className={view === "translate" ? "active" : ""} onClick={() => setView("translate")}>
               <Icon name="split" />ページ翻訳
             </button>
-            <button type="button" role="tab" aria-selected={view === "compose"} className={view === "compose" ? "active" : ""} onClick={() => setView("compose")}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "compose"}
+              aria-disabled={composeLocked}
+              className={`${view === "compose" ? "active" : ""} ${composeLocked ? "locked" : ""}`}
+              title={composeLocked ? COMPOSE_NEEDS_DEEPL : undefined}
+              onClick={() => (composeLocked ? setComposeHint(true) : setView("compose"))}
+            >
               <Icon name="pen" />英作文
             </button>
           </div>
+          {composeLocked && composeHint && (
+            <p className="compose-lock-note" role="status">
+              {COMPOSE_NEEDS_DEEPL}
+              <button type="button" className="text-button" onClick={() => { setComposeHint(false); setSettingsOpen(true); }}><Icon name="key" />設定を開く</button>
+            </p>
+          )}
           {/* Kept mounted so drafts survive switching tabs. */}
           <div className="compose-view" hidden={view !== "compose"}>
             <Composer settings={settings} deeplPlan={providerStatus?.deeplPlan ?? null} persistSettings={persistSettings} ensureConsent={ensureConsent} getPageContext={getPageContext} sendMessage={sendMessage} />
