@@ -38,7 +38,7 @@ npm run test:e2e    # ビルドしてから、実際の拡張機能をChromium�
 - `tests/e2e/selection-auto.spec.ts`：パネルを閉じたまま選択範囲を翻訳する流れ（実際のサービスワーカー。APIキーがないため、DeepLで断られるところまでを確かめます）
 - `tests/e2e/page-watch.spec.ts` / `page-navigation.spec.ts`：ページ移動の検知と、パネルを閉じたときにモードがオフになること
 - `tests/e2e/selection-tooltip.spec.ts` / `selection-panel.spec.ts`：選択範囲翻訳のツールチップ（実際の拡張機能。閉じた Shadow DOM の中は DevTools プロトコルで読みます）と、パネル側のボタン・ショートカット
-- `tests/e2e/side-panel.spec.ts`：ビルドしたサイドパネルを `chrome.*` のモック（`tests/e2e/support/chrome-mock.ts`）付きで開き、カード表示、Jevのオン・オフ、同意、英作文チェックを確かめます
+- `tests/e2e/side-panel.spec.ts`：ビルドしたサイドパネルを `chrome.*` のモック（`tests/e2e/support/chrome-mock.ts`）付きで開き、カード表示、本文の判定（Claude・Jev・なし）、同意、英作文チェックを確かめます
 
 不具合を直したときは、再発を防ぐテストを一緒に追加してください。サイトで問題が出たときは、該当部分を最小限のHTMLにして `tests/e2e/fixtures` に置くと再現できます。`E2E_DIST=<別ビルドのdist> npx playwright test` で、過去のリリースに対して同じテストを実行できます。
 

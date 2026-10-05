@@ -28,7 +28,7 @@ test.describe("translating as text is selected, with the panel closed", () => {
   const setAuto = (driver: Page, enabled: boolean, consent: boolean) => driver.evaluate(async ({ enabled, consent, SETTINGS_KEY, CONSENT_KEY }) => {
     const stored = await chrome.storage.local.get(SETTINGS_KEY);
     await chrome.storage.local.set({ [SETTINGS_KEY]: { ...(stored[SETTINGS_KEY] ?? {}), selectionAutoTranslate: enabled, translationProvider: "deepl" } });
-    if (consent) await chrome.storage.local.set({ [CONSENT_KEY]: 2 });
+    if (consent) await chrome.storage.local.set({ [CONSENT_KEY]: 3 });
   }, { enabled, consent, SETTINGS_KEY, CONSENT_KEY });
 
   test("without consent, the tooltip says what to do and nothing is sent", async ({ page, driver, send }) => {
@@ -120,7 +120,7 @@ test.describe("translating as text is selected, with the panel closed", () => {
     }));
     await page.goto("/fixtures/article.html");
     await send({ type: "UPDATE_FOCUS_ANCHOR", anchor: { screenY: 0 } });
-    await driver.evaluate(() => chrome.runtime.sendMessage({ type: "SAVE_PROVIDER_KEYS", typesafeApiKey: "", deeplApiKey: "test-key:fx" }));
+    await driver.evaluate(() => chrome.runtime.sendMessage({ type: "SAVE_PROVIDER_KEYS", keys: { deeplApiKey: "test-key:fx" } }));
     await setAuto(driver, true, true);
     await page.waitForTimeout(500);
 

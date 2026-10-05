@@ -35,7 +35,7 @@ test.describe("choosing the translation service", () => {
 
 test.describe("translating a page with Chrome's translator", () => {
   test("translates on this device: nothing goes to DeepL, and without Jev nothing leaves at all", async ({ page }) => {
-    await openPanel(page, { translator: "available", consent: null, settings: { translationProvider: "chrome", useJev: false } });
+    await openPanel(page, { translator: "available", consent: null, settings: { translationProvider: "chrome", contentJudge: "off" } });
     await expect(page.locator(".panel-footer")).toContainText("外部へは送信しません");
 
     await page.locator(".translate-button").click();
@@ -49,7 +49,7 @@ test.describe("translating a page with Chrome's translator", () => {
   });
 
   test("still asks Jev, with consent, when Jev is on", async ({ page }) => {
-    await openPanel(page, { translator: "available", settings: { translationProvider: "chrome", useJev: true } });
+    await openPanel(page, { translator: "available", settings: { translationProvider: "chrome", contentJudge: "jev" } });
     await page.locator(".translate-button").click();
     await expect(page.locator(".entry-card").first()).toBeVisible();
     const types = await sentTypes(page);
@@ -58,20 +58,20 @@ test.describe("translating a page with Chrome's translator", () => {
   });
 
   test("translates into English the other way round", async ({ page }) => {
-    await openPanel(page, { translator: "available", settings: { translationProvider: "chrome", useJev: false, targetLanguage: "EN" } });
+    await openPanel(page, { translator: "available", settings: { translationProvider: "chrome", contentJudge: "off", targetLanguage: "EN" } });
     await page.locator(".translate-button").click();
     await expect(page.locator(".entry-translation").first()).toContainText("[Chrome en]");
   });
 
   test("shows the model download on first use", async ({ page }) => {
-    await openPanel(page, { translator: "downloadable", settings: { translationProvider: "chrome", useJev: false } });
+    await openPanel(page, { translator: "downloadable", settings: { translationProvider: "chrome", contentJudge: "off" } });
     await page.locator(".translate-button").click();
     await expect(page.locator(".status-text")).toContainText("翻訳モデルをダウンロードしています… ");
     await expect(page.locator(".entry-card").first()).toBeVisible();
   });
 
   test("creates the translator once for the whole panel", async ({ page }) => {
-    await openPanel(page, { translator: "available", settings: { translationProvider: "chrome", useJev: false } });
+    await openPanel(page, { translator: "available", settings: { translationProvider: "chrome", contentJudge: "off" } });
     await page.locator(".translate-button").click();
     await expect(page.locator(".entry-card").first()).toBeVisible();
     await page.locator(".translate-button").click();
@@ -80,7 +80,7 @@ test.describe("translating a page with Chrome's translator", () => {
   });
 
   test("does not hint at a missing DeepL key", async ({ page }) => {
-    await openPanel(page, { translator: "available", providers: { jev: false, deepl: false }, settings: { translationProvider: "chrome", useJev: false } });
+    await openPanel(page, { translator: "available", providers: { jev: false, deepl: false }, settings: { translationProvider: "chrome", contentJudge: "off" } });
     await expect(page.locator(".setup-hint")).toHaveCount(0);
   });
 });
@@ -101,7 +101,7 @@ test.describe("selection translation with Chrome's translator", () => {
 
 test.describe("Jev is used only with its key", () => {
   test("translates without Jev, and says so in Settings, when only Jev's key is missing", async ({ page }) => {
-    await openPanel(page, { providers: { jev: false, deepl: true }, settings: { translationProvider: "deepl", useJev: true } });
+    await openPanel(page, { providers: { jev: false, deepl: true }, settings: { translationProvider: "deepl", contentJudge: "jev" } });
     await page.locator(".translate-button").click();
     await expect(page.locator(".entry-card").first()).toBeVisible();
     expect(await sentTypes(page)).not.toContain("CLASSIFY_CANDIDATES");

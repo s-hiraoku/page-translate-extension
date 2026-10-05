@@ -1,8 +1,8 @@
-import type { Decision, TargetLanguage, TranslationProvider } from "../shared/types";
+import type { ContentJudge, Decision, TargetLanguage, TranslationProvider } from "../shared/types";
 
 /**
  * Translation cache. A page's translation is kept on this device for a few hours so that
- * opening the same page again needs no Jev or DeepL request. It lives in extension storage
+ * opening the same page again needs no Claude, Jev or DeepL request. It lives in extension storage
  * only and is never sent anywhere.
  *
  * Everything here is free of extension APIs so it can be unit-tested; the side panel reads
@@ -25,7 +25,7 @@ export interface CachedTranslation {
   h?: string;
 }
 
-/** What is remembered about one page, in one target language and Jev setting. */
+/** What is remembered about one page, in one target language and judge. */
 export interface CachedPage {
   /** When the decisions were made; the entry expires this long after. */
   savedAt: number;
@@ -33,7 +33,7 @@ export interface CachedPage {
   usedAt: number;
   /** Text hashes of the candidates, in page order: equal lists mean the page has not changed. */
   hashes: string[];
-  /** Jev's (or the local) verdict per text hash. */
+  /** The judge's (or the local) verdict per text hash. */
   decisions: Record<string, { d: Decision; c: number }>;
   translations: Record<string, CachedTranslation>;
 }
@@ -57,10 +57,11 @@ export function readCache(value: unknown): CacheStore {
 export { normalizePageUrl } from "../shared/page-url";
 import { normalizePageUrl } from "../shared/page-url";
 
-/** Results depend on the language and on whether Jev chose the text, so each combination has its own entry. */
-export function pageCacheKey(url: string, target: TargetLanguage, useJev: boolean, provider: TranslationProvider = "deepl"): string {
-  // DeepL keeps the key it had before other translators existed, so its cache stays valid.
-  return `${normalizePageUrl(url)}|${target}|${useJev ? "jev" : "nojev"}${provider === "deepl" ? "" : `|${provider}`}`;
+/** Results depend on the language and on who chose the text, so each combination has its own entry. */
+export function pageCacheKey(url: string, target: TargetLanguage, judge: ContentJudge, provider: TranslationProvider = "deepl"): string {
+  // DeepL and Jev keep the keys they had before other translators and judges existed, so their cache stays valid.
+  const judgeKey = judge === "off" ? "nojev" : judge;
+  return `${normalizePageUrl(url)}|${target}|${judgeKey}${provider === "deepl" ? "" : `|${provider}`}`;
 }
 
 /** Short stable hash of a text (SHA-256, first 16 hex digits). */

@@ -1,27 +1,29 @@
 import type { CandidateSegment, ComposeLanguage, DeepLPlan, Decision, EnglishVariant, TargetLanguage, WritingStyle } from "../shared/types";
-import { PROVIDER_KEYS_KEY, SETTINGS_KEY, DEFAULT_SETTINGS, resolveDeepLPlan, type ExtensionSettings, type ProviderStatus } from "../shared/types";
+import { PROVIDER_KEYS_KEY, SETTINGS_KEY, resolveDeepLPlan, type ExtensionSettings, type ProviderKeyInput, type ProviderStatus } from "../shared/types";
+import { normalizeSettings, type StoredSettings } from "../shared/effective-settings";
+import { judgeWithClaude } from "./claude-judge";
 
-type ProviderKeys = { typesafeApiKey: string; deeplApiKey: string };
+type ProviderKeys = ProviderKeyInput;
 type DecisionResult = { decisions: Array<{ id: string; decision: Decision; confidence: number }> };
 type TranslationResult = { translations: Array<{ id: string; translatedText: string; translatedHtml: string }> };
 
-const EMPTY_KEYS: ProviderKeys = { typesafeApiKey: "", deeplApiKey: "" };
+const EMPTY_KEYS: ProviderKeys = { anthropicApiKey: "", typesafeApiKey: "", deeplApiKey: "" };
+const KEY_NAMES = Object.keys(EMPTY_KEYS) as Array<keyof ProviderKeys>;
 
 export async function providerStatus(): Promise<ProviderStatus> {
   const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
   return {
-    providers: { jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey) },
+    providers: { claude: Boolean(keys.anthropicApiKey), jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey) },
     deeplPlan: keys.deeplApiKey ? resolveDeepLPlan(settings.deeplEndpoint, keys.deeplApiKey) : null,
   };
 }
 
-export async function saveProviderKeys(typesafeApiKey: string, deeplApiKey: string): Promise<ProviderStatus> {
+/** Keys left empty keep the key already registered. */
+export async function saveProviderKeys(input: Partial<ProviderKeys>): Promise<ProviderStatus> {
   const current = await readProviderKeys();
-  const next = {
-    typesafeApiKey: typesafeApiKey.trim() || current.typesafeApiKey,
-    deeplApiKey: deeplApiKey.trim() || current.deeplApiKey,
-  };
-  if (!typesafeApiKey.trim() && !deeplApiKey.trim()) throw new Error("保存するAPIキーを入力してください。");
+  const typed = (name: keyof ProviderKeys) => typeof input[name] === "string" ? (input[name] as string).trim() : "";
+  if (KEY_NAMES.every((name) => !typed(name))) throw new Error("保存するAPIキーを入力してください。");
+  const next = Object.fromEntries(KEY_NAMES.map((name) => [name, typed(name) || current[name]])) as unknown as ProviderKeys;
   await chrome.storage.session.set({ [PROVIDER_KEYS_KEY]: next });
   return providerStatus();
 }
@@ -174,6 +176,20 @@ export async function translateSegments(
   return { translations };
 }
 
+/** Claude picks the page's content (see claude-judge.ts). */
+export async function classifyWithClaude(
+  segments: CandidateSegment[],
+  targetLanguage: TargetLanguage,
+  pageTitle = "",
+  pageInfo: { mainContentDetected: boolean; articleTitle: string } = { mainContentDetected: false, articleTitle: "" },
+): Promise<DecisionResult> {
+  const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
+  if (settings.translationProvider !== "chrome" && !keys.deeplApiKey) throw new Error("設定画面でDeepLのAPIキーを登録してください。翻訳にはDeepLのキーが必要です。");
+  if (!keys.anthropicApiKey) throw new Error("ClaudeのAPIキーが未登録です。設定画面で登録するか、「翻訳する本文の判定」で別の方法を選んでください。");
+  validateSegments(segments);
+  return { decisions: await judgeWithClaude(keys.anthropicApiKey, segments, targetLanguage, { pageTitle, ...pageInfo }) };
+}
+
 /**
  * article: one long text with its own paragraphs; portal: many sections headed by
  * h2/h3 whose text is mostly list items and short summaries; landing: little prose.
@@ -191,10 +207,7 @@ export function classifyPage(segments: CandidateSegment[]): "article" | "portal"
 async function readProviderKeys(): Promise<ProviderKeys> {
   const result = await chrome.storage.session.get(PROVIDER_KEYS_KEY);
   const raw = result[PROVIDER_KEYS_KEY] as Partial<ProviderKeys> | undefined;
-  return {
-    typesafeApiKey: typeof raw?.typesafeApiKey === "string" ? raw.typesafeApiKey : EMPTY_KEYS.typesafeApiKey,
-    deeplApiKey: typeof raw?.deeplApiKey === "string" ? raw.deeplApiKey : EMPTY_KEYS.deeplApiKey,
-  };
+  return Object.fromEntries(KEY_NAMES.map((name) => [name, typeof raw?.[name] === "string" ? raw[name] : EMPTY_KEYS[name]])) as unknown as ProviderKeys;
 }
 
 /** Plain-text translation for the writing check; `context` steers wording and is not translated. */
@@ -251,7 +264,7 @@ async function deeplAccess(): Promise<{ key: string; host: string; plan: DeepLPl
 
 async function readSettings(): Promise<ExtensionSettings> {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) };
+  return normalizeSettings(stored[SETTINGS_KEY] as StoredSettings | undefined);
 }
 
 function validateComposeText(text: string): void {

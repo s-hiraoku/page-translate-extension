@@ -67,7 +67,7 @@ export interface TranslationEntry extends CandidateSegment {
   translatedText?: string;
   translatedHtml?: string;
   reason?: string;
-  /** Jev answered "review": translated automatically, flagged in the panel. */
+  /** The judge (Claude or Jev) answered "review": translated automatically, flagged in the panel. */
   uncertain?: boolean;
 }
 
@@ -77,8 +77,12 @@ export interface ExtensionSettings {
   /** Replaces the former API Free / API Pro choice (`deeplPlan`), which is no longer read. */
   deeplEndpoint: DeepLEndpoint;
   theme: ThemePreference;
-  /** Ask TypeSafe Jev which candidates to translate. Off: every candidate left by the local filters is translated. */
-  useJev: boolean;
+  /**
+   * Who picks the candidates to translate: Claude (falls back to Jev, then to none, while its key is
+   * missing), TypeSafe Jev, or nobody (every candidate left by the local filters is translated).
+   * Replaces `useJev`, which is read only to carry an old choice over (see `normalizeSettings`).
+   */
+  contentJudge: ContentJudge;
   /** Writing check: English variant, DeepL Write style, and whether the open page is used as context. */
   englishVariant: EnglishVariant;
   writingStyle: WritingStyle;
@@ -103,18 +107,19 @@ export interface ExtensionSettings {
 }
 
 export type TranslationProvider = "deepl" | "chrome";
+export type ContentJudge = "claude" | "jev" | "off";
 
 export const SETTINGS_KEY = "pageTranslateSettings";
 export const PROVIDER_KEYS_KEY = "pageTranslateProviderKeys";
 export const DATA_USE_CONSENT_KEY = "pageTranslateDataUseConsentVersion";
-/** 2: the English writing check also sends the reader's own text to DeepL. */
-export const DATA_USE_CONSENT_VERSION = 2;
+/** 2: the English writing check also sends the reader's own text to DeepL. 3: page text may go to Claude (Anthropic). */
+export const DATA_USE_CONSENT_VERSION = 3;
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   targetLanguage: "JA",
   displayMode: "source-panel",
   deeplEndpoint: "auto",
   theme: "system",
-  useJev: true,
+  contentJudge: "claude",
   englishVariant: "EN-US",
   writingStyle: "default",
   composePageContext: false,
@@ -127,10 +132,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
 export type ExtensionMessage =
   | { type: "OPEN_SIDE_PANEL" }
   | { type: "CHECK_PROVIDERS" }
-  | { type: "SAVE_PROVIDER_KEYS"; typesafeApiKey: string; deeplApiKey: string }
+  | { type: "SAVE_PROVIDER_KEYS"; keys: Partial<ProviderKeyInput> }
   | { type: "CLEAR_PROVIDER_KEYS" }
   | { type: "SCAN_ACTIVE_TAB" }
-  | { type: "CLASSIFY_CANDIDATES"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; mainContentDetected?: boolean }
+  | { type: "CLASSIFY_CANDIDATES"; judge: "claude" | "jev"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; mainContentDetected?: boolean }
   | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage }
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
@@ -223,8 +228,15 @@ export interface RuntimeError {
   error: string;
 }
 
+/** API keys the reader types into Settings; an empty one keeps the key already registered. */
+export interface ProviderKeyInput {
+  anthropicApiKey: string;
+  typesafeApiKey: string;
+  deeplApiKey: string;
+}
+
 export interface ProviderStatus {
-  providers: { jev: boolean; deepl: boolean };
+  providers: { claude: boolean; jev: boolean; deepl: boolean };
   /** DeepL plan the registered key is used with (after "auto" detection); null without a key. */
   deeplPlan: DeepLPlan | null;
 }

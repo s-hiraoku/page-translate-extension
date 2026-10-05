@@ -10,14 +10,14 @@ export interface MockOptions {
   /** Consent version already stored; null means the reader has not agreed yet. */
   consent?: number | null;
   deeplPlan?: "free" | "pro" | null;
-  /** Stored settings merged over the defaults (e.g. { useJev: false }). */
+  /** Stored settings merged over the defaults (e.g. { contentJudge: "off" }). */
   settings?: Record<string, unknown>;
   /** Assigned keyboard shortcuts by command name; "" means unassigned. */
   shortcuts?: Record<string, string>;
   /** Extra chrome.storage.local values present when the panel opens. */
   stored?: Record<string, unknown>;
-  /** Which API keys are registered; both by default. */
-  providers?: { jev: boolean; deepl: boolean };
+  /** Which API keys are registered; Jev's and DeepL's by default (Claude's only when named). */
+  providers?: { claude?: boolean; jev: boolean; deepl: boolean };
   /**
    * Chrome's built-in Translator API, absent by default (as in Playwright's Chromium). "downloadable"
    * reports download progress when created; window.__translatorCreates counts creations.
@@ -182,7 +182,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         },
       },
     };
-  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true }, translator: options.translator ?? null });
+  }, { segments: SEGMENTS, consent: options.consent === undefined ? 3 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: { claude: false, jev: true, deepl: true, ...options.providers }, translator: options.translator ?? null });
 }
 
 /** Message types the panel has sent so far, in order. */

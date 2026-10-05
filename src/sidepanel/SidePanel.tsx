@@ -4,6 +4,7 @@ import type {
   Decision,
   DeepLEndpoint,
   ComposeLanguage,
+  ContentJudge,
   DeepLPlan,
   DisplayMode,
   ExtensionMessage,
@@ -42,7 +43,7 @@ import {
   type CachedPage,
 } from "./cache";
 import { isInTargetLanguage, isMainProse } from "./rules";
-import { effectiveSettings } from "../shared/effective-settings";
+import { effectiveSettings, normalizeSettings, type StoredSettings } from "../shared/effective-settings";
 import { chromeTranslatorSupported, getChromeTranslator, setDownloadProgressListener, textToHtml, translateWithChrome } from "../shared/chrome-translator";
 import { applyTheme, cachedTheme } from "./theme";
 import { createScreenTopTracker } from "../shared/screen-top";
@@ -62,10 +63,14 @@ const themeOptions: Array<{ value: ThemePreference; label: string; icon: IconNam
   { value: "dark", label: "ダーク", icon: "moon" },
 ];
 
-const jevOptions: Array<{ value: boolean; label: string }> = [
-  { value: true, label: "Jevを使う" },
-  { value: false, label: "Jevを使わない" },
+const judgeOptions: Array<{ value: ContentJudge; label: string }> = [
+  { value: "claude", label: "Claude" },
+  { value: "jev", label: "Jev" },
+  { value: "off", label: "使わない" },
 ];
+
+/** Who picks the text, as the panel names it in status lines. */
+const JUDGE_NAMES: Record<Exclude<ContentJudge, "off">, string> = { claude: "Claude", jev: "Jev" };
 
 const COMPOSE_NEEDS_DEEPL = "英作文機能を使うには、設定でDeepLのAPIキーを登録してください。";
 const INITIAL_STATUS = "ページを開いて「このページを翻訳」を押してください。";
@@ -105,6 +110,7 @@ export function SidePanel() {
   const [error, setError] = useState("");
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [typesafeApiKey, setTypesafeApiKey] = useState("");
   const [deeplApiKey, setDeeplApiKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
@@ -113,7 +119,7 @@ export function SidePanel() {
   const [view, setView] = useState<"translate" | "compose">("translate");
   /** Shown after the reader tries the writing tab without a DeepL key. */
   const [composeHint, setComposeHint] = useState(false);
-  /** Candidates the page scan or the local language check dropped before Jev saw them. */
+  /** Candidates the page scan or the local language check dropped before the judge saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
   /**
    * Page-click mode (clicking translated text on the page selects its card) or selection
@@ -198,7 +204,7 @@ export function SidePanel() {
   useEffect(() => {
     void chrome.storage.local.get(SETTINGS_KEY).then((stored) => {
       if (stored[SETTINGS_KEY]) {
-        setSettings({ ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings>) });
+        setSettings(normalizeSettings(stored[SETTINGS_KEY] as StoredSettings));
       }
       setSettingsLoaded(true);
     }, () => setSettingsLoaded(true));
@@ -259,7 +265,7 @@ export function SidePanel() {
     return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
-  // Jev's "skip" decisions are not part of the article: they never appear in the list.
+  // The judge's "skip" decisions are not part of the article: they never appear in the list.
   const visibleEntries = useMemo(() => entries.filter((entry) => entry.state !== "skipped"), [entries]);
   const hiddenCount = droppedCount + entries.length - visibleEntries.length;
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
@@ -293,14 +299,19 @@ export function SidePanel() {
   const providerStatusRef = useRef(providerStatus);
   providerStatusRef.current = providerStatus;
   /**
-   * The settings as they apply now: Jev only with its key, Chrome's translator only where this Chrome
+   * The settings as they apply now: Claude or Jev only with its key, Chrome's translator only where this Chrome
    * has one (else DeepL). Actions read this; the settings screen shows what the reader chose.
    */
   const currentSettings = (): ExtensionSettings => effectiveSettings(settingsRef.current, {
+    claudeKey: providerStatusRef.current ? providerStatusRef.current.providers.claude : null,
     jevKey: providerStatusRef.current ? providerStatusRef.current.providers.jev : null,
     chromeTranslator: chromeSupported,
   });
-  const applied = effectiveSettings(settings, { jevKey: providerStatus ? providerStatus.providers.jev : null, chromeTranslator: chromeSupported });
+  const applied = effectiveSettings(settings, {
+    claudeKey: providerStatus ? providerStatus.providers.claude : null,
+    jevKey: providerStatus ? providerStatus.providers.jev : null,
+    chromeTranslator: chromeSupported,
+  });
   /** Bumped by every new scan so late results from the previous list are dropped. */
   const generationRef = useRef(0);
   // A finished scan (which also means data-use consent was given) enables page-click mode,
@@ -577,7 +588,7 @@ export function SidePanel() {
     // Straight from the click: the first use of Chrome's translator downloads its model, which
     // Chrome allows only right after a click. The translator is kept for the rest of the run.
     prepareChromeTranslator();
-    // Whether Jev's key is registered decides whether Jev is used: know it before going on.
+    // Which keys are registered decides who picks the text (Claude, Jev or nobody): know it before going on.
     if (!providerStatusRef.current) {
       const status = await sendMessage<ProviderStatus>({ type: "CHECK_PROVIDERS" }).catch(() => null);
       providerStatusRef.current = status;
@@ -593,10 +604,10 @@ export function SidePanel() {
     getChromeTranslator(currentSettings().targetLanguage).catch(() => undefined);
   }
 
-  /** Page translation sends text out unless Chrome translates and Jev is off: then nothing leaves this device. */
+  /** Page translation sends text out unless Chrome translates and no judge is used: then nothing leaves this device. */
   async function consentForPage(): Promise<boolean> {
     const current = currentSettings();
-    return current.translationProvider === "chrome" && !current.useJev ? true : ensureConsent();
+    return current.translationProvider === "chrome" && current.contentJudge === "off" ? true : ensureConsent();
   }
 
   /** Selection translation sends the text to DeepL; Chrome's translator keeps it on this device. */
@@ -730,29 +741,30 @@ export function SidePanel() {
         return generation === generationRef.current;
       }
 
-      // A page seen a few hours ago: if its text is the same, take Jev's verdicts and the translations
-      // from the cache and call nothing. If it changed, Jev looks at the whole page again (its
+      // A page seen a few hours ago: if its text is the same, take the judge's verdicts and the translations
+      // from the cache and call nothing. If it changed, the judge looks at the whole page again (its
       // verdicts depend on the page as a whole), but translations of unchanged texts are still reused.
       const useCache = settings.cacheEnabled;
       const hashes = useCache ? await Promise.all(candidates.map((segment) => hashText(segment.sourceText))) : [];
-      const cacheKey = pageCacheKey(page.url, settings.targetLanguage, settings.useJev, settings.translationProvider);
+      const cacheKey = pageCacheKey(page.url, settings.targetLanguage, settings.contentJudge, settings.translationProvider);
       const store = useCache ? await loadCacheStore() : emptyCache();
       if (stale()) return false;
       const cached = useCache && !fresh ? findPage(store, cacheKey, settings.cacheTtlHours, Date.now()) : null;
       const unchanged = cached !== null && isUnchanged(cached, hashes);
 
-      // Without Jev, everything the local filters kept is translated. Comparing the two
-      // settings on the same page shows exactly what Jev removes.
+      // Without a judge, everything the local filters kept is translated. Comparing the
+      // settings on the same page shows exactly what the judge removes.
       let decisions: DecisionResult["decisions"];
       if (cached && unchanged) {
         decisions = candidates.map((segment, index) => {
           const known = cached.decisions[hashes[index] as string];
           return { id: segment.id, decision: known?.d ?? "translate", confidence: known?.c ?? 1 };
         });
-      } else if (settings.useJev) {
-        setStatus(`本文の${candidates.length}件をJevが確認しています…`);
+      } else if (settings.contentJudge !== "off") {
+        setStatus(`本文の${candidates.length}件を${JUDGE_NAMES[settings.contentJudge]}が確認しています…`);
         ({ decisions } = await sendMessage<DecisionResult>({
           type: "CLASSIFY_CANDIDATES",
+          judge: settings.contentJudge,
           segments: candidates,
           targetLanguage: settings.targetLanguage,
           pageTitle: page.title,
@@ -765,7 +777,7 @@ export function SidePanel() {
       const byId = new Map(decisions.map((decision) => [decision.id, decision]));
       const next: TranslationEntry[] = candidates.map((segment) => {
         const decision = byId.get(segment.id);
-        // Jev's "review" means plausible content: translate it too, and flag it on the card.
+        // The judge's "review" means plausible content: translate it too, and flag it on the card.
         // A "skip" on a readable sentence of the main content, still in the source
         // language, is more likely a misjudged page type than chrome: translate and flag it.
         const skipped = decision?.decision === "skip" && !isMainProse(segment, settings.targetLanguage);
@@ -815,7 +827,7 @@ export function SidePanel() {
       const finalEntries = [...next];
       setEntries(finalEntries);
       const shown = finalEntries.filter((entry) => entry.state !== "skipped").length;
-      const mode = settings.useJev ? "" : "（Jevなし）";
+      const mode = settings.contentJudge === "off" ? "（判定なし）" : "";
       setStatus(shown > 0 ? `本文の${shown}件を表示しています。${mode}` : `翻訳が必要な本文が見つかりませんでした。${mode}`);
       if (settings.displayMode === "inline") await applyInline(finalEntries);
     } catch (caught) {
@@ -970,15 +982,16 @@ export function SidePanel() {
   }
 
   async function saveProviderKeys(): Promise<void> {
-    if (!typesafeApiKey.trim() && !deeplApiKey.trim()) {
+    if (!anthropicApiKey.trim() && !typesafeApiKey.trim() && !deeplApiKey.trim()) {
       setError("保存するAPIキーを入力してください。");
       return;
     }
     setSavingKeys(true);
     setError("");
     try {
-      const result = await sendMessage<ProviderStatus>({ type: "SAVE_PROVIDER_KEYS", typesafeApiKey, deeplApiKey });
+      const result = await sendMessage<ProviderStatus>({ type: "SAVE_PROVIDER_KEYS", keys: { anthropicApiKey, typesafeApiKey, deeplApiKey } });
       setProviderStatus(result);
+      setAnthropicApiKey("");
       setTypesafeApiKey("");
       setDeeplApiKey("");
       setStatus("APIキーをこのChromeセッション中だけ保存しました。");
@@ -994,6 +1007,7 @@ export function SidePanel() {
     try {
       const result = await sendMessage<ProviderStatus>({ type: "CLEAR_PROVIDER_KEYS" });
       setProviderStatus(result);
+      setAnthropicApiKey("");
       setTypesafeApiKey("");
       setDeeplApiKey("");
       setStatus("保存中のAPIキーを削除しました。");
@@ -1157,7 +1171,7 @@ export function SidePanel() {
           </button>
 
           <SettingHeading id="provider-label" label="翻訳に使うサービス" help={help}>
-            <b>Chrome内蔵</b>：Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。パソコン版のChrome 138以降で使えます。<br />
+            <b>Chrome内蔵</b>：Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（ClaudeかJevで判定する場合、本文候補はその判定先へ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。パソコン版のChrome 138以降で使えます。<br />
             <b>DeepL</b>：DeepLで翻訳します。DeepLのAPIキーが必要です。<br />
             英作文は、どちらを選んでもDeepLを使います。
           </SettingHeading>
@@ -1183,26 +1197,30 @@ export function SidePanel() {
             <p className="setting-alert"><Icon name="alert" />このChromeでは内蔵の翻訳を使えないため、DeepLで翻訳します（パソコン版のChrome 138以降が必要です）。</p>
           )}
 
-          <SettingHeading id="jev-label" label="翻訳する本文の判定" help={help}>
-            <b>Jevを使う</b>：ページ側のルールで除いた残りをTypeSafe Jevが確認し、本文だけを翻訳します。JevのAPIキーが必要です。<br />
-            <b>Jevを使わない</b>：ページ側のルールで除いた残りをすべて翻訳します。
+          <SettingHeading id="judge-label" label="翻訳する本文の判定" help={help}>
+            <b>Claude</b>：ページ側のルールで除いた残りを、ページ全体の流れと合わせてClaude（Anthropic）が確認し、本文だけを翻訳します。ClaudeのAPIキーが必要です。キーがないあいだは、Jevのキーがあれば Jev で判定します。<br />
+            <b>Jev</b>：ページ側のルールで除いた残りをTypeSafe Jevが確認し、本文だけを翻訳します。JevのAPIキーが必要です。<br />
+            <b>使わない</b>：ページ側のルールで除いた残りをすべて翻訳します。
           </SettingHeading>
-          <div className="mode-switch" role="radiogroup" aria-labelledby="jev-label">
-            {jevOptions.map((option) => (
+          <div className="mode-switch" role="radiogroup" aria-labelledby="judge-label">
+            {judgeOptions.map((option) => (
               <button
-                key={String(option.value)}
+                key={option.value}
                 type="button"
                 role="radio"
-                aria-checked={settings.useJev === option.value}
-                className={settings.useJev === option.value ? "active" : ""}
-                onClick={() => void persistSettings({ ...settings, useJev: option.value })}
+                aria-checked={settings.contentJudge === option.value}
+                className={settings.contentJudge === option.value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settings, contentJudge: option.value })}
               >
                 {option.label}
               </button>
             ))}
           </div>
-          {settings.useJev && providerStatus && !providerStatus.providers.jev && (
-            <p className="setting-alert"><Icon name="alert" />JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します。</p>
+          {/* Jev standing in for Claude is the expected state until a Claude key is added: a hint, not a warning. */}
+          {settings.contentJudge !== "off" && providerStatus && settings.contentJudge !== applied.contentJudge && (
+            applied.contentJudge === "jev"
+              ? <p className="field-hint">{judgeFallbackNote(settings.contentJudge, applied.contentJudge)}</p>
+              : <p className="setting-alert"><Icon name="alert" />{judgeFallbackNote(settings.contentJudge, applied.contentJudge)}</p>
           )}
 
           <SettingHeading id="selection-auto-label" label="選択したら自動で翻訳" help={help}>
@@ -1256,9 +1274,18 @@ export function SidePanel() {
           )}
 
           <h3 className="settings-section">翻訳サービス</h3>
-          <div className={`provider-card ${settings.useJev ? "" : "unused"}`}>
+          <div className={`provider-card ${settings.contentJudge === "claude" ? "" : "unused"}`}>
             <div className="provider-card-heading">
-              <div><h3>TypeSafe Jev</h3><p>{settings.useJev ? "ページから翻訳する本文を選びます。" : "現在は使わない設定です。"}</p></div>
+              <div><h3>Claude</h3><p>{settings.contentJudge === "claude" ? "ページ全体を読んで、翻訳する本文を選びます。" : "現在は使わない設定です。"}</p></div>
+              <span className={`badge ${providerStatus?.providers.claude ? "ready" : "missing"}`}>{providerStatus?.providers.claude ? "登録済み" : "未設定"}</span>
+            </div>
+            <label className="field-label" htmlFor="anthropic-api-key">APIキー</label>
+            <input id="anthropic-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={anthropicApiKey} onChange={(event) => setAnthropicApiKey(event.target.value)} placeholder={providerStatus?.providers.claude ? "登録済み · 変更時だけ入力" : "Claude（Anthropic）のAPIキー"} />
+          </div>
+
+          <div className={`provider-card ${settings.contentJudge === "jev" || (settings.contentJudge === "claude" && applied.contentJudge === "jev") ? "" : "unused"}`}>
+            <div className="provider-card-heading">
+              <div><h3>TypeSafe Jev</h3><p>{settings.contentJudge === "jev" ? "ページから翻訳する本文を選びます。" : settings.contentJudge === "claude" ? "Claudeのキーがないときに、本文を選びます。" : "現在は使わない設定です。"}</p></div>
               <span className={`badge ${providerStatus?.providers.jev ? "ready" : "missing"}`}>{providerStatus?.providers.jev ? "登録済み" : "未設定"}</span>
             </div>
             <label className="field-label" htmlFor="typesafe-api-key">APIキー</label>
@@ -1267,7 +1294,7 @@ export function SidePanel() {
 
           <div className="provider-card">
             <div className="provider-card-heading">
-              <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
+              <div><h3>DeepL</h3><p>{settings.contentJudge === "off" ? "本文を翻訳します。" : "選ばれた本文を翻訳します。"}</p></div>
               <span className={`badge ${providerStatus?.providers.deepl ? "ready" : "missing"}`}>{providerStatus?.providers.deepl ? "登録済み" : "未設定"}</span>
             </div>
             <label className="field-label" htmlFor="deepl-endpoint">接続先</label>
@@ -1285,10 +1312,10 @@ export function SidePanel() {
           <button className="button primary block" type="button" onClick={() => void saveProviderKeys()} disabled={savingKeys}>
             <Icon name="key" />{savingKeys ? "保存しています…" : "APIキーを保存"}
           </button>
-          <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl}>
+          <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.claude && !providerStatus?.providers.jev && !providerStatus?.providers.deepl}>
             <Icon name="trash" />保存中のAPIキーを削除
           </button>
-          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe JevまたはDeepLへ直接送信します。</p>
+          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はClaude（Anthropic）、TypeSafe JevまたはDeepLへ直接送信します。</p>
         </section>
       ) : (
         <>
@@ -1350,7 +1377,7 @@ export function SidePanel() {
                           <span className="entry-location">{entry.location}</span>
                           {entry.state !== "translated" && <span className={`badge ${entry.state}`}>{stateLabel(entry.state)}</span>}
                           {entry.state === "translated" && entry.uncertain && (
-                            <span className="badge review" title="Jevの判定があいまいだったため、自動で翻訳しました">要確認</span>
+                            <span className="badge review" title="判定があいまいだったため、自動で翻訳しました">要確認</span>
                           )}
                         </span>
                         {entry.state === "translated" ? (
@@ -1381,12 +1408,12 @@ export function SidePanel() {
               <p>ナビゲーションや広告などを除いた本文を翻訳します。訳文を選ぶと、原文の位置までコネクタで結びます。</p>
               <ol className="steps">
                 <li><span>1</span>本文を抽出</li>
-                <li><span>2</span>{applied.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
+                <li><span>2</span>{applied.contentJudge === "off" ? "ルールで本文を選別" : `${JUDGE_NAMES[applied.contentJudge]}が翻訳対象を判定`}</li>
                 <li><span>3</span>{applied.translationProvider === "chrome" ? "Chromeで翻訳" : "DeepLで翻訳"}</li>
               </ol>
               {applied.translationProvider === "deepl" && providerStatus && !providerStatus.providers.deepl && (
                 <p className="setup-hint">
-                  はじめに、DeepLのAPIキーを登録してください（TypeSafe Jevは、設定でオフにすれば不要です）。
+                  はじめに、DeepLのAPIキーを登録してください（ClaudeとTypeSafe Jevのキーは、本文の判定に使うときだけ必要です）。
                   <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
                 </p>
               )}
@@ -1418,8 +1445,8 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定でJevを使わない場合は、抽出した文章をDeepLにだけ送ります）。選択範囲翻訳では、選んだ文章がDeepLにだけ送られます。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
-            <p>送信先はTypeSafe JevとDeepLです。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルが、本文の判定のためにClaude（Anthropic）またはTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定で判定を使わない場合は、抽出した文章をDeepLにだけ送ります）。選択範囲翻訳では、選んだ文章がDeepLにだけ送られます。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p>送信先はClaude（Anthropic）、TypeSafe JevとDeepLです。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a></p>
             <div className="consent-actions">
               <button className="button secondary" type="button" onClick={() => void answerConsent(false)}>キャンセル</button>
@@ -1466,9 +1493,16 @@ function dropPresence(): void {
 /** One line, at the foot of the panel, on where page text goes when translating. */
 function privacySummary(settings: ExtensionSettings): string {
   if (settings.translationProvider === "chrome") {
-    return settings.useJev ? "翻訳時は本文候補をJevへ送信。翻訳はこの端末の中で行います" : "翻訳はこの端末の中で行い、外部へは送信しません";
+    return settings.contentJudge === "off" ? "翻訳はこの端末の中で行い、外部へは送信しません" : `翻訳時は本文候補を${JUDGE_NAMES[settings.contentJudge]}へ送信。翻訳はこの端末の中で行います`;
   }
-  return settings.useJev ? "翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信" : "翻訳時は本文をDeepLへ送信（Jevは不使用）";
+  return settings.contentJudge === "off" ? "翻訳時は本文をDeepLへ送信（判定は不使用）" : `翻訳時は本文候補を${JUDGE_NAMES[settings.contentJudge]}へ、選ばれた文章をDeepLへ送信`;
+}
+
+/** Why the judge the reader chose is not the one in use: its key is missing. */
+function judgeFallbackNote(chosen: ContentJudge, applied: ContentJudge): string {
+  if (chosen === "claude" && applied === "jev") return "ClaudeのAPIキーが未登録のため、いまはJevで判定します。";
+  if (chosen === "claude") return "ClaudeのAPIキーが未登録のため、いまは判定を使わずに翻訳します。";
+  return "JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します。";
 }
 
 async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {

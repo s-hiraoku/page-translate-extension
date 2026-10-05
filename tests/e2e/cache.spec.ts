@@ -254,7 +254,7 @@ test.describe("translation cache", () => {
   });
 
   test("without Jev the cache works the same", async ({ page }) => {
-    await openPanel(page, { settings: { useJev: false } });
+    await openPanel(page, { settings: { contentJudge: "off" } });
     await translate(page);
     await clearSent(page);
     await translate(page);

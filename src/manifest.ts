@@ -4,7 +4,7 @@ export default defineManifest({
   manifest_version: 3,
   name: "Page Translate",
   version: "1.7.1",
-  description: "Translate English and Japanese web pages with Jev and DeepL, with translations linked to their source.",
+  description: "Translate English and Japanese web pages with Claude or Jev and DeepL, with translations linked to their source.",
   minimum_chrome_version: "116",
   permissions: ["contextMenus", "sidePanel", "storage"],
   icons: {
@@ -14,6 +14,7 @@ export default defineManifest({
     128: "icons/icon128.png",
   },
   host_permissions: [
+    "https://api.anthropic.com/*",
     "https://api.typesafe.ai/*",
     "https://api-free.deepl.com/*",
     "https://api.deepl.com/*",

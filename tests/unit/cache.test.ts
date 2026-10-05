@@ -47,16 +47,17 @@ describe("normalizePageUrl", () => {
 
 describe("pageCacheKey", () => {
   it("keeps DeepL's key as before and gives Chrome's translator its own", () => {
-    const deepl = pageCacheKey("https://example.com/a", "JA", true);
-    expect(pageCacheKey("https://example.com/a", "JA", true, "deepl")).toBe(deepl);
-    expect(pageCacheKey("https://example.com/a", "JA", true, "chrome")).not.toBe(deepl);
+    const deepl = pageCacheKey("https://example.com/a", "JA", "jev");
+    expect(pageCacheKey("https://example.com/a", "JA", "jev", "deepl")).toBe(deepl);
+    expect(pageCacheKey("https://example.com/a", "JA", "jev", "chrome")).not.toBe(deepl);
   });
 
-  it("separates target language and the Jev setting", () => {
-    const base = pageCacheKey("https://example.com/a", "JA", true);
-    expect(pageCacheKey("https://example.com/a", "EN", true)).not.toBe(base);
-    expect(pageCacheKey("https://example.com/a", "JA", false)).not.toBe(base);
-    expect(pageCacheKey("https://example.com/a#x?utm_medium=y", "JA", true)).toBe(base);
+  it("separates target language and the judge", () => {
+    const base = pageCacheKey("https://example.com/a", "JA", "jev");
+    expect(pageCacheKey("https://example.com/a", "EN", "jev")).not.toBe(base);
+    expect(pageCacheKey("https://example.com/a", "JA", "off")).not.toBe(base);
+    expect(pageCacheKey("https://example.com/a", "JA", "claude")).not.toBe(base);
+    expect(pageCacheKey("https://example.com/a#x?utm_medium=y", "JA", "jev")).toBe(base);
   });
 });
 

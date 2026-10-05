@@ -4,17 +4,17 @@ import type {
   RuntimeError,
   SelectionAutoChanged,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type ExtensionSettings, type PanelCommandRequest } from "../shared/types";
+import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type ExtensionSettings, type PanelCommandRequest } from "../shared/types";
 import { CONSENT_NOTE, createSelectionTranslator, type SelectionOutcome } from "./selection";
-import { settingsOnInstall } from "../shared/effective-settings";
-import { classifyCandidates, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateText } from "./providers";
+import { normalizeSettings, settingsOnInstall, type StoredSettings } from "../shared/effective-settings";
+import { classifyCandidates, classifyWithClaude, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
 
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   void storageReady.then(() => chrome.storage.local.get(SETTINGS_KEY)).then((stored) => {
-    const next = settingsOnInstall(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined);
+    const next = settingsOnInstall(stored[SETTINGS_KEY] as StoredSettings | undefined);
     return next ? chrome.storage.local.set({ [SETTINGS_KEY]: next }) : undefined;
   });
   void createMenus();
@@ -43,7 +43,7 @@ async function hasConsent(): Promise<boolean> {
 async function readSettings(): Promise<ExtensionSettings> {
   await storageReady;
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
-  const settings = { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) };
+  const settings = normalizeSettings(stored[SETTINGS_KEY] as StoredSettings | undefined);
   chromeTranslatorChosen = settings.translationProvider === "chrome";
   return settings;
 }
@@ -167,7 +167,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       return providerStatus();
     case "SAVE_PROVIDER_KEYS":
       requireExtensionPage(sender);
-      return saveProviderKeys(message.typesafeApiKey, message.deeplApiKey);
+      return saveProviderKeys(message.keys);
     case "CLEAR_PROVIDER_KEYS":
       requireExtensionPage(sender);
       return clearProviderKeys();
@@ -183,10 +183,15 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     case "UPDATE_FOCUS_ANCHOR":
       return sendToActiveTab(message);
     case "CLASSIFY_CANDIDATES":
-      return classifyCandidates(message.segments, message.targetLanguage, message.pageTitle, {
+    {
+      const pageInfo = {
         mainContentDetected: message.mainContentDetected ?? false,
         articleTitle: message.segments.find((segment) => segment.isArticleTitle)?.sourceText ?? "",
-      });
+      };
+      return message.judge === "claude"
+        ? classifyWithClaude(message.segments, message.targetLanguage, message.pageTitle, pageInfo)
+        : classifyCandidates(message.segments, message.targetLanguage, message.pageTitle, pageInfo);
+    }
     case "TRANSLATE_SEGMENTS":
       return translateSegments(message.segments, message.targetLanguage);
     // The writing check sends the reader's own text: only the side panel may ask for it.

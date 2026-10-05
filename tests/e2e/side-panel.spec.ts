@@ -61,8 +61,27 @@ test.describe("page translation", () => {
     await expect(page.locator('[data-entry-id="segment-2"] .badge.review')).toBeVisible();
   });
 
+  test("asks Claude to pick the text once its key is registered", async ({ page }) => {
+    await openPanel(page, { providers: { claude: true, jev: true, deepl: true } });
+    await translate(page);
+
+    const classify = await page.evaluate(() => (window as unknown as { __sent: Array<{ type: string; judge?: string }> }).__sent.find((m) => m.type === "CLASSIFY_CANDIDATES"));
+    expect(classify?.judge).toBe("claude");
+    expect(await cardIds(page)).toEqual(["segment-1", "segment-2", "segment-4", "segment-5"]);
+  });
+
+  test("asks Jev while Claude's key is missing, and says so in Settings", async ({ page }) => {
+    await openPanel(page, { providers: { claude: false, jev: true, deepl: true } });
+    await translate(page);
+
+    const classify = await page.evaluate(() => (window as unknown as { __sent: Array<{ type: string; judge?: string }> }).__sent.find((m) => m.type === "CLASSIFY_CANDIDATES"));
+    expect(classify?.judge).toBe("jev");
+    await page.getByRole("button", { name: "設定" }).click();
+    await expect(page.getByText("ClaudeのAPIキーが未登録のため、いまはJevで判定します。")).toBeVisible();
+  });
+
   test("translates without Jev when it is turned off", async ({ page }) => {
-    await openPanel(page, { settings: { useJev: false } });
+    await openPanel(page, { settings: { contentJudge: "off" } });
     await translate(page);
 
     const types = await sentTypes(page);
@@ -70,7 +89,7 @@ test.describe("page translation", () => {
     expect(types).toContain("TRANSLATE_SEGMENTS");
     // Everything the local filters kept is translated; only text already in Japanese is left out.
     expect(await cardIds(page)).toEqual(["segment-1", "segment-2", "segment-3", "segment-4", "segment-5"]);
-    await expect(page.locator(".status-text")).toContainText("Jevなし");
+    await expect(page.locator(".status-text")).toContainText("判定なし");
   });
 });
 
@@ -506,7 +525,7 @@ test.describe("settings explanations", () => {
   });
 
   test("a warning about the current state shows without opening anything", async ({ page }) => {
-    await openPanel(page, { providers: { jev: false, deepl: true }, settings: { useJev: true } });
+    await openPanel(page, { providers: { jev: false, deepl: true }, settings: { contentJudge: "jev" } });
     await openSettings(page);
     await expect(page.locator(".setting-alert", { hasText: "JevのAPIキーが未登録のため、いまはJevを使わずに翻訳します" })).toBeVisible();
     await expect(page.locator(".help-text:visible")).toHaveCount(0);
