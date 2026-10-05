@@ -10,3 +10,9 @@ playwright-report/
 .page-translate-secrets.json
 .page-translate-secrets.json.tmp
 .DS_Store
+# Eval output that is derived or bulky (see eval/selection/README.md)
+.claude/hillclimb/**/traces/
+.claude/hillclimb/**/report.html
+.claude/hillclimb/**/state.json
+.claude/hillclimb/**/trajectory/
+.claude/hillclimb/**/progress.txt

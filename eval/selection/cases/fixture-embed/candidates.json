@@ -1,0 +1,56 @@
+{
+  "title": "Home \\ Anthropic",
+  "url": "tests/e2e/fixtures/embed.html",
+  "segments": [
+    {
+      "id": "segment-1",
+      "order": 0,
+      "location": "記事タイトル",
+      "tagName": "h1",
+      "sourceText": "安全性を最優先とするAIの研究と製品",
+      "sourceHtml": "安全性を最優先とするAIの研究と製品",
+      "region": "main",
+      "kind": "heading",
+      "linkDensity": 0,
+      "isArticleTitle": true
+    },
+    {
+      "id": "segment-2",
+      "order": 1,
+      "location": "安全性を最優先とするAIの研究と製品 · p 1",
+      "tagName": "p",
+      "sourceText": "AIは世界に多大な影響を与えるでしょう。Anthropicは、その恩恵を確保し、リスクを軽減することに尽力する公益法人です。",
+      "sourceHtml": "AIは世界に多大な影響を与えるでしょう。Anthropicは、その恩恵を確保し、リスクを軽減することに尽力する公益法人です。",
+      "region": "main",
+      "kind": "paragraph",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-3",
+      "order": 2,
+      "location": "安全性を最優先とするAIの研究と製品 · p 2",
+      "tagName": "p",
+      "sourceText": "Claude Opus 5.5 is our most capable model, faster and cheaper to run than before.",
+      "sourceHtml": "Claude Opus 5.5 is our most capable model, faster and cheaper to run than before.",
+      "region": "main",
+      "kind": "paragraph",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-4",
+      "order": 3,
+      "location": "安全性を最優先とするAIの研究と製品 · p 3",
+      "tagName": "p",
+      "sourceText": "We build AI systems that people can rely on, and we publish research on how to make them safe.",
+      "sourceHtml": "We build AI systems that people can rely on, and we publish research on how to make them safe.",
+      "region": "main",
+      "kind": "paragraph",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    }
+  ],
+  "mainContentDetected": true,
+  "excludedCount": 0
+}

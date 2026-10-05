@@ -1,0 +1,104 @@
+{
+  "title": "How tides work — Ocean Notes",
+  "url": "tests/e2e/fixtures/article.html",
+  "segments": [
+    {
+      "id": "segment-1",
+      "order": 0,
+      "location": "記事タイトル",
+      "tagName": "h1",
+      "sourceText": "How tides work",
+      "sourceHtml": "How tides work",
+      "region": "main",
+      "kind": "heading",
+      "linkDensity": 0,
+      "isArticleTitle": true
+    },
+    {
+      "id": "segment-2",
+      "order": 1,
+      "location": "How tides work · p 1",
+      "tagName": "p",
+      "sourceText": "Tides are the regular rise and fall of sea level, caused by the gravitational pull of the Moon and the Sun acting on the rotating Earth, and they shape coastlines everywhere.",
+      "sourceHtml": "Tides are the regular rise and fall of sea level, caused by the gravitational pull of the Moon and the Sun acting on the rotating Earth, and they shape coastlines everywhere.",
+      "region": "main",
+      "kind": "paragraph",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-3",
+      "order": 2,
+      "location": "The role of the Moon · h2 1",
+      "tagName": "h2",
+      "sourceText": "The role of the Moon",
+      "sourceHtml": "The role of the Moon",
+      "region": "main",
+      "kind": "heading",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-4",
+      "order": 3,
+      "location": "The role of the Moon · p 2",
+      "tagName": "p",
+      "sourceText": "The Moon's gravity pulls on the ocean nearest to it, creating a bulge of water. A second bulge forms on the opposite side, because the Earth itself is pulled toward the Moon more strongly than the distant water.",
+      "sourceHtml": "The Moon's gravity pulls on the ocean nearest to it, creating a bulge of water. A second bulge forms on the opposite side, because the Earth itself is pulled toward the Moon more strongly than the distant water.",
+      "region": "main",
+      "kind": "paragraph",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-5",
+      "order": 4,
+      "location": "The role of the Moon · p 3",
+      "tagName": "p",
+      "sourceText": "As the Earth rotates through these bulges, most coastlines experience two high tides and two low tides every lunar day, which lasts about twenty-four hours and fifty minutes.",
+      "sourceHtml": "As the Earth rotates through these bulges, most coastlines experience two high tides and two low tides every lunar day, which lasts about twenty-four hours and fifty minutes.",
+      "region": "main",
+      "kind": "paragraph",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-6",
+      "order": 5,
+      "location": "The role of the Moon · li 4",
+      "tagName": "li",
+      "sourceText": "Spring tides happen when the Sun and Moon align, producing larger ranges.",
+      "sourceHtml": "Spring tides happen when the Sun and Moon align, producing larger ranges.",
+      "region": "main",
+      "kind": "list-item",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-7",
+      "order": 6,
+      "location": "The role of the Moon · li 5",
+      "tagName": "li",
+      "sourceText": "Neap tides happen when they are at right angles, producing smaller ranges.",
+      "sourceHtml": "Neap tides happen when they are at right angles, producing smaller ranges.",
+      "region": "main",
+      "kind": "list-item",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    },
+    {
+      "id": "segment-8",
+      "order": 7,
+      "location": "The role of the Moon · p 6",
+      "tagName": "p",
+      "sourceText": "日本語の段落はすでに翻訳先の言語なので、一覧には表示されません。",
+      "sourceHtml": "日本語の段落はすでに翻訳先の言語なので、一覧には表示されません。",
+      "region": "main",
+      "kind": "paragraph",
+      "linkDensity": 0,
+      "isArticleTitle": false
+    }
+  ],
+  "mainContentDetected": true,
+  "excludedCount": 20
+}

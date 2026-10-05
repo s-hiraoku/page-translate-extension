@@ -1,0 +1,17 @@
+{
+  "flow": "selection",
+  "goal": { "metric": "recall", "direction": "higher", "hold": ["specificity"] },
+  "harness_paths": ["eval/selection/run-eval.mjs", "eval/selection/selection.mjs"],
+  "metrics": [
+    { "id": "recall", "kind": "float", "label": "Recall" },
+    { "id": "specificity", "kind": "float", "label": "Specificity" },
+    { "id": "precision", "kind": "float", "label": "Precision" },
+    { "id": "content_missed", "kind": "float", "label": "Missed", "better": "lower" },
+    { "id": "chrome_shown", "kind": "float", "label": "Chrome shown", "better": "lower" }
+  ],
+  "perf_fields": [
+    { "id": "cost_usd", "label": "Cost", "unit": "$" },
+    { "id": "latency_s", "label": "Latency", "unit": "s" },
+    { "id": "api_calls", "label": "API calls" }
+  ]
+}
