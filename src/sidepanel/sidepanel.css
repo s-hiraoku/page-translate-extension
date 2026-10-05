@@ -169,6 +169,8 @@ h1, h2, h3, p { margin: 0; }
 .results-section { flex: 1; padding: 16px 14px 20px; }
 .results-heading { position: sticky; top: var(--panel-top-height, 0px); z-index: 4; display: flex; align-items: center; gap: 8px; margin: -8px -14px 4px; padding: 8px 14px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); }
 .results-heading h2 { font-size: 14px; font-weight: 700; }
+.list-toggle { margin: -3px -8px -3px auto; padding: 3px 8px; font-size: 12px; }
+.entry-list[hidden] { display: none; }
 .count { min-width: 22px; padding: 1px 7px; border-radius: 99px; background: var(--sunken); color: var(--ink-2); font: 600 11px/18px var(--mono); text-align: center; }
 .pick-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 99px; background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 600; transition: background .15s, color .15s, border-color .15s; }
 .pick-toggle .icon { width: 14px; height: 14px; }

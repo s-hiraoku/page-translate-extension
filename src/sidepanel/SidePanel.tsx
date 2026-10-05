@@ -136,6 +136,9 @@ export function SidePanel() {
   // The tab the results and modes belong to; switching to another tab in this window clears them.
   const boundTabRef = useRef<number | null>(null);
   const panelTopRef = useRef<HTMLDivElement | null>(null);
+  // With "in the page" display the translations are on the page already, so the list starts folded
+  // when a translation begins from an empty panel. It only folds in that mode.
+  const [listFolded, setListFolded] = useState(false);
   // Which settings explanations are unfolded; they start folded each time the settings open.
   const [openHelp, setOpenHelp] = useState<ReadonlySet<string>>(() => new Set());
   const help: HelpState = {
@@ -485,6 +488,7 @@ export function SidePanel() {
   async function revealPicked(segmentId: string): Promise<void> {
     const index = visibleRef.current.findIndex((entry) => entry.id === segmentId);
     if (index < 0) return;
+    setListFolded(false);
     setSelectedId(segmentId);
     setError("");
     // Wait for the selection to render, so the connector-follow effect sees the scroll.
@@ -553,6 +557,7 @@ export function SidePanel() {
     setPageTitle("");
     setPageUrl("");
     setSelectedId(null);
+    setListFolded(false);
     setDroppedCount(0);
     setCacheNote(null);
     setPickMode("off");
@@ -704,6 +709,9 @@ export function SidePanel() {
     const stale = () => generation !== generationRef.current;
     setBusy(true);
     setError("");
+    // A list the reader was already reading stays open; otherwise "in the page" shows the translations only there.
+    const listShowing = entriesRef.current.length > 0;
+    setListFolded((folded) => settings.displayMode === "inline" && (folded || !listShowing));
     setEntries([]);
     setDroppedCount(0);
     setSelectedId(null);
@@ -919,7 +927,10 @@ export function SidePanel() {
     const next = { ...settings, displayMode: mode };
     await persistSettings(next);
     if (mode === "inline") await applyInline(entries);
-    else await sendMessage({ type: "RESTORE_PAGE" }).catch((caught: unknown) => setError(errorMessage(caught)));
+    else {
+      setListFolded(false);
+      await sendMessage({ type: "RESTORE_PAGE" }).catch((caught: unknown) => setError(errorMessage(caught)));
+    }
   }
 
   async function applyInline(current: TranslationEntry[]): Promise<void> {
@@ -1002,6 +1013,7 @@ export function SidePanel() {
     }
   }
 
+  const folded = listFolded && settings.displayMode === "inline";
   const progress = visibleEntries.length > 0 ? translatedCount / visibleEntries.length : 0;
 
   return (
@@ -1330,17 +1342,25 @@ export function SidePanel() {
               <div className="results-heading">
                 <h2 id="results-title">翻訳箇所</h2>
                 <span className="count">{visibleEntries.length}</span>
+                {settings.displayMode === "inline" && visibleEntries.length > 0 && (
+                  <button type="button" className="text-button list-toggle" aria-expanded={!folded} aria-controls="entry-list" onClick={() => setListFolded(!folded)}>
+                    {folded ? "一覧を表示" : "一覧を畳む"}
+                  </button>
+                )}
               </div>
+              {folded && visibleEntries.length > 0 && (
+                <p className="hidden-note folded-note"><Icon name="inline" />訳文はページ内に表示しています。原文と並べて見たいときは「一覧を表示」を押してください。</p>
+              )}
               {pagePick && (
                 <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />本文をクリックで訳文を表示。翻訳されていない箇所はクリックか文字の選択で追加して翻訳します。Escで終了</p>
               )}
-              {hiddenCount > 0 && (
+              {hiddenCount > 0 && !folded && (
                 <p className="hidden-note"><Icon name="eyeOff" />本文外・翻訳対象外の{hiddenCount}件は表示していません</p>
               )}
               {visibleEntries.length === 0 && !pagePick && (
                 <p className="hidden-note">表示できる翻訳箇所はありません。「ページクリック」で本文を選ぶと追加できます。</p>
               )}
-              <ol className="entry-list">
+              <ol className="entry-list" id="entry-list" hidden={folded}>
                 {visibleEntries.map((entry, index) => (
                   <li key={entry.id}>
                     <article data-entry-id={entry.id} className={`entry-card ${selectedId === entry.id ? "selected" : ""} ${entry.state}`} style={{ "--entry-color": entryColor(index) } as React.CSSProperties}>

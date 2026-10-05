@@ -92,6 +92,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
       }),
       CHECK_PROVIDERS: () => ({ providers, deeplPlan }),
       FOCUS_SEGMENT: () => ({ focused: true }),
+      APPLY_TRANSLATIONS: (m) => ({ applied: (m.entries as unknown[]).length }),
       READ_SELECTION: () => ({ id: 1, text: "The tide rises twice a day along most coastlines." }),
       TRANSLATE_SELECTION: (m) => ({ text: `訳:${String(m.text)}` }),
       SELECTION_RESULT: () => ({ shown: true }),
