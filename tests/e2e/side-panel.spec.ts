@@ -644,7 +644,7 @@ test.describe("translating with Claude", () => {
     } });
     await page.getByRole("button", { name: "設定を開く" }).click();
 
-    const glossary = page.getByRole("textbox", { name: "用語集" });
+    const glossary = page.getByRole("textbox", { name: "用語集の中身" });
     await expect(glossary).toHaveValue("deploy = 配置\n");
     await page.getByRole("button", { name: "プログラミング用語を追加" }).click();
     await expect(glossary).toHaveValue(/pull request = プルリクエスト/);
@@ -656,5 +656,39 @@ test.describe("translating with Claude", () => {
     const stored = { pageTranslateGlossary: await read("pageTranslateGlossary"), pageTranslateCache: await read("pageTranslateCache") };
     expect(stored.pageTranslateGlossary).toMatch(/^deploy = 配置\n\n# プログラミング\npull request = プルリクエスト/);
     expect(Object.keys((stored.pageTranslateCache as { pages: object }).pages)).toEqual(["https://example.com/|JA|jev"]);
+  });
+
+  test("builds glossary entries with Claude from the reader's wishes and the open page, keeping the reader's own lines", async ({ page }) => {
+    await openPanel(page, { stored: { pageTranslateGlossary: "deploy = 配置\n" } });
+    await page.getByRole("button", { name: "設定を開く" }).click();
+
+    await page.getByRole("textbox", { name: "AIで作る" }).fill("Webアプリの技術記事。用語はカタカナ");
+    await page.getByText("開いているページの専門用語も拾う").click();
+    await page.getByRole("button", { name: "AIで用語集を作る" }).click();
+
+    await expect(page.getByText("AIが1語を追加して保存しました。")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "用語集の中身" })).toHaveValue("deploy = 配置\n\n# AIが作成：Webアプリの技術記事。用語はカタカナ\ndashboard = ダッシュボード\n");
+    const build = (await sent(page)).find((message) => message.type === "BUILD_GLOSSARY") as { request?: string; pageText?: string } | undefined;
+    expect(build?.request).toBe("Webアプリの技術記事。用語はカタカナ");
+    expect(build?.pageText).toBe("We plan to ship version 2.0 next month.");
+  });
+
+  test("fixes the glossary from a card the reader disliked and translates that passage again", async ({ page }) => {
+    await openPanel(page, { settings: { translationProvider: "claude" }, stored: { pageTranslateGlossary: "dashboard = ダッシュボード\n" } });
+    await translate(page);
+    await page.locator('[data-entry-id="segment-2"] .entry-main').click();
+    await page.getByRole("button", { name: "この訳を直す" }).click();
+    await page.getByRole("textbox", { name: "どう直したいか" }).fill("dashboardは「管理画面」に");
+    await page.getByRole("button", { name: "用語集を直して訳し直す" }).click();
+
+    await expect(page.getByText("用語集を直して訳し直しました：dashboard = 管理画面")).toBeVisible();
+    const messages = await sent(page);
+    const fix = messages.find((message) => message.type === "FIX_GLOSSARY") as { sourceText?: string; feedback?: string } | undefined;
+    expect(fix?.feedback).toBe("dashboardは「管理画面」に");
+    expect(fix?.sourceText).toContain("dashboards");
+    const again = messages.filter((message) => message.type === "TRANSLATE_SEGMENTS").at(-1);
+    expect(again?.segments?.map((segment) => segment.sourceText)).toEqual([fix?.sourceText]);
+    const glossary = await page.evaluate(async () => (await (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, unknown>> } } } }).chrome.storage.local.get("pageTranslateGlossary")).pageTranslateGlossary);
+    expect(glossary).toBe("dashboard = 管理画面\n");
   });
 });

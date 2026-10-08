@@ -77,6 +77,35 @@ export function mergeGlossary(text: string, addition: string): string {
 }
 
 /**
+ * The glossary text with `entries` written in: an entry whose term is already there replaces that
+ * line when `replace` is set (a fix the reader asked for) and is left out otherwise (the reader's own
+ * line wins over a suggestion); the rest is appended under `heading`. Also returns how many changed.
+ */
+export function applyGlossaryEntries(text: string, entries: GlossaryEntry[], replace: boolean, heading: string): { text: string; changed: number } {
+  const pending = new Map<string, GlossaryEntry>();
+  for (const entry of entries) pending.set(entry.term.toLowerCase(), entry);
+  let changed = 0;
+  const lines = text.split("\n").map((line) => {
+    const [existing] = parseGlossary(line);
+    const key = existing?.term.toLowerCase();
+    const update = key === undefined ? undefined : pending.get(key);
+    if (!existing || !update) return line;
+    pending.delete(key as string);
+    if (!replace || existing.translation === update.translation) return line;
+    changed += 1;
+    return `${existing.term} = ${update.translation}`;
+  });
+  const added = [...pending.values()].map((entry) => `${entry.term} = ${entry.translation}`);
+  changed += added.length;
+  let next = lines.join("\n");
+  if (added.length > 0) {
+    const base = next.replace(/\s+$/, "");
+    next = `${base}${base ? "\n\n" : ""}# ${heading}\n${added.join("\n")}\n`;
+  }
+  return { text: next, changed };
+}
+
+/**
  * A starter glossary for software documentation, as Japanese technical writing usually renders the
  * terms. Machine translation tends to get these wrong ("issue" as 問題, "deploy" as 配備).
  */

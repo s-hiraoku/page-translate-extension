@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROGRAMMING_GLOSSARY, glossaryFor, mergeGlossary, parseGlossary } from "../../src/shared/glossary";
+import { PROGRAMMING_GLOSSARY, applyGlossaryEntries, glossaryFor, mergeGlossary, parseGlossary } from "../../src/shared/glossary";
 
 describe("parseGlossary", () => {
   it("reads 'term = translation' and tab-separated lines, skipping notes and incomplete lines", () => {
@@ -45,5 +45,18 @@ describe("mergeGlossary", () => {
 
   it("leaves the glossary as it is when every term is there", () => {
     expect(mergeGlossary("deploy = 配置", "# add\ndeploy = デプロイ")).toBe("deploy = 配置");
+  });
+});
+
+describe("applyGlossaryEntries", () => {
+  const text = "deploy = 配置\nbuild = ビルド\n";
+  const entries = [{ term: "Deploy", translation: "デプロイ" }, { term: "commit", translation: "コミット" }];
+
+  it("keeps the reader's lines and appends new terms under a heading", () => {
+    expect(applyGlossaryEntries(text, entries, false, "AI")).toEqual({ text: "deploy = 配置\nbuild = ビルド\n\n# AI\ncommit = コミット\n", changed: 1 });
+  });
+
+  it("replaces a term's translation when fixing", () => {
+    expect(applyGlossaryEntries(text, entries, true, "AI")).toEqual({ text: "deploy = デプロイ\nbuild = ビルド\n\n# AI\ncommit = コミット\n", changed: 2 });
   });
 });
