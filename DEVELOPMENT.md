@@ -34,7 +34,7 @@ npm run test:e2e    # ビルドしてから、実際の拡張機能をChromium�
 初回だけ `npx playwright install chromium` でテスト用のChromiumを入れてください。
 
 - `tests/unit`：本文判定のルール（`src/sidepanel/rules.ts`）、英作文の差分、ページ種別の判定、DeepLのプラン判定
-- `tests/e2e/content-script.spec.ts`：`dist` を拡張機能として読み込み、`tests/e2e/fixtures` のページで本文抽出、ページ内翻訳、コネクタ、ページクリックモードを確かめます
+- `tests/e2e/content-script.spec.ts`：`dist` を拡張機能として読み込み、`tests/e2e/fixtures` のページで本文抽出、ページ内翻訳、コネクタ、ページ選択モードを確かめます
 - `tests/e2e/selection-auto.spec.ts`：パネルを閉じたまま選択範囲を翻訳する流れ（実際のサービスワーカー。APIキーがないため、DeepLで断られるところまでを確かめます）
 - `tests/e2e/page-watch.spec.ts` / `page-navigation.spec.ts`：ページ移動の検知と、パネルを閉じたときにモードがオフになること
 - `tests/e2e/selection-tooltip.spec.ts` / `selection-panel.spec.ts`：選択範囲翻訳のツールチップ（実際の拡張機能。閉じた Shadow DOM の中は DevTools プロトコルで読みます）と、パネル側のボタン・ショートカット

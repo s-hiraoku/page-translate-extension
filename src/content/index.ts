@@ -1,4 +1,4 @@
-import type { CandidateSegment, FocusAnchor, PagePickEvent, PageWatchEvent, PagePickRequest, PagePickTarget, ReadSelectionResult, ScanResult, SegmentRegion, SelectionAutoChanged, SelectionEvent, TargetLanguage, TranslationEntry } from "../shared/types";
+import type { CandidateSegment, FocusAnchor, PagePickEvent, PageWatchEvent, PagePickRequest, PagePickTarget, PageSelectTrigger, ReadSelectionResult, ScanResult, SegmentRegion, SelectionAutoChanged, SelectionEvent, TargetLanguage, TranslationEntry } from "../shared/types";
 import { PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_PRESENCE_PORT, SELECTION_PORT } from "../shared/types";
 import { normalizePageUrl } from "../shared/page-url";
 import { chromeTranslatorSupported, translateWithChrome } from "../shared/chrome-translator";
@@ -245,7 +245,7 @@ function scanPage(): ScanResult {
 
 /**
  * Title and main text of the page for the writing check's DeepL context. Unlike
- * scanPage it leaves the current segments, cards and page-click mode untouched.
+ * scanPage it leaves the current segments, cards and page select mode untouched.
  */
 function readPageText(): { title: string; text: string } {
   const { root } = detectMainContent();
@@ -347,7 +347,7 @@ function focusSegment(id: string, anchor?: FocusAnchor, appearance: { label?: st
   const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Bring the source next to the card: its anchor line should sit at the card's height.
-  // In page-click mode the reader just clicked the source, so the page stays put.
+  // In page select mode the reader just clicked (or rested on) the source, so the page stays put.
   if (scroll) {
     if (hasScrollableAncestor(element)) {
       element.scrollIntoView({ behavior: "instant", block: "center" });
@@ -521,7 +521,7 @@ function watchPageChanges(port: chrome.runtime.Port): void {
     const next = normalizePageUrl(location.href);
     if (next === current) return;
     current = next;
-    // The connector, page-click targets and tooltip belonged to the page that was just replaced.
+    // The connector, page select targets and tooltip belonged to the page that was just replaced.
     clearFocusOverlay();
     stopPagePick();
     stopSelectionMode();
@@ -545,19 +545,22 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener((message: PagePickRequest) => {
     if (message?.type !== "targets" || !Array.isArray(message.targets)) return;
     if (typeof message.zoom === "number" && message.zoom > 0) tabZoom = message.zoom;
-    startPagePick(port, message.targets);
+    startPagePick(port, message.targets, message.trigger === "hover" ? "hover" : "click");
   });
   port.onDisconnect.addListener(() => {
     if (pagePick?.port === port) stopPagePick();
   });
 });
 
-/** Main content of the last scan, reused to describe blocks added in page-click mode. */
+/** Main content of the last scan, reused to describe blocks added in page select mode. */
 let lastMainContent: MainContentInfo = { root: null, title: null };
 let manualCount = 0;
 const ADD_COLOR = "#8891a4";
+/** In hover mode, how long the pointer rests on text before its card is shown, so passing over text does not scroll the panel. */
+const HOVER_PICK_DELAY_MS = 300;
 
-function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void {
+function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[], trigger: PageSelectTrigger = "click"): void {
+  const byHover = trigger === "hover";
   stopPagePick();
   const targets = new Map<HTMLElement, PagePickTarget>();
   for (const target of list) {
@@ -577,14 +580,16 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
     border: "2px dashed", transition: "all .08s ease-out",
   });
   const hoverLabel = document.createElement("span");
-  hoverLabel.textContent = "＋ 翻訳を追加";
+  hoverLabel.textContent = byHover ? "＋ 選択して翻訳を追加" : "＋ 翻訳を追加";
   Object.assign(hoverLabel.style, {
     position: "absolute", top: "-11px", right: "8px", padding: "1px 7px", borderRadius: "999px",
     background: ADD_COLOR, color: "#fff", font: "600 11px/18px system-ui, sans-serif", whiteSpace: "nowrap",
   });
   hover.append(hoverLabel);
   const hint = document.createElement("div");
-  hint.textContent = "ページクリック：クリックで訳文を表示・追加 ／ 文字を選択して翻訳 · Escで終了";
+  hint.textContent = byHover
+    ? "ページ選択：マウスを乗せて訳文を表示 ／ 文字を選択して翻訳 · Escで終了"
+    : "ページ選択：クリックで訳文を表示・追加 ／ 文字を選択して翻訳 · Escで終了";
   Object.assign(hint.style, {
     position: "fixed", right: "12px", bottom: "12px", padding: "7px 12px", borderRadius: "999px",
     background: "#16203a", color: "#fff", font: "500 12px/1.4 system-ui, sans-serif", boxShadow: "0 4px 14px #0003",
@@ -595,7 +600,8 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
   const style = document.createElement("style");
   style.dataset.pageTranslateUi = "true";
   style.textContent = "[data-page-translate-pick]{cursor:pointer!important}";
-  document.head.append(style);
+  // With hover, clicks go to the page as usual, so the text keeps its own cursor.
+  if (!byHover) document.head.append(style);
   for (const element of targets.keys()) element.dataset.pageTranslatePick = "";
 
   let hovered: HTMLElement | null = null;
@@ -627,9 +633,18 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
     const segment = describeForPanel(element, selected);
     port.postMessage({ type: "added", segment, followingIds: idsAfter(element) } satisfies PagePickEvent);
   };
+  let hoverTimer = 0;
   const onOver = (event: PointerEvent) => {
+    const previous = hovered;
     hovered = findTarget(event.target) ?? pickableBlock(event.target);
     drawHover();
+    if (!byHover || hovered === previous) return;
+    clearTimeout(hoverTimer);
+    const target = hovered ? targets.get(hovered) : undefined;
+    if (!target) return;
+    hoverTimer = window.setTimeout(() => {
+      port.postMessage({ type: "picked", segmentId: target.id } satisfies PagePickEvent);
+    }, HOVER_PICK_DELAY_MS);
   };
   const onClick = (event: MouseEvent) => {
     if (event.button !== 0) return;
@@ -638,6 +653,8 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
       event.stopImmediatePropagation();
       return;
     }
+    // With hover, a click is the page's own: links work, and untranslated text is added by selecting it.
+    if (byHover) return;
     const element = findTarget(event.target);
     const block = element ? null : pickableBlock(event.target);
     if (!element && !block) return;
@@ -677,6 +694,7 @@ function startPagePick(port: chrome.runtime.Port, list: PagePickTarget[]): void 
     port,
     targets,
     dispose: () => {
+      clearTimeout(hoverTimer);
       window.removeEventListener("pointerover", onOver, true);
       window.removeEventListener("click", onClick, true);
       window.removeEventListener("mouseup", onMouseUp, true);

@@ -60,7 +60,7 @@ button.close:hover { background: #eceef3; }
 /**
  * The tooltip that shows a translation next to the selected text. It lives in a closed shadow
  * root so the page's styles cannot reach it, and it is marked as extension UI so page scans and
- * page-click mode leave it alone. `anchor` returns the selection's box in viewport coordinates.
+ * page select mode leave it alone. `anchor` returns the selection's box in viewport coordinates.
  */
 export function createSelectionTooltip(anchor: () => Box | null, onClose: () => void): SelectionTooltip {
   const host = document.createElement("div");
