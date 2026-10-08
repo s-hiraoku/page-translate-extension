@@ -3,7 +3,7 @@
 ## 商品情報
 
 - 商品名：Page Translate
-- 短い説明（manifestの`description`。ダッシュボードの「パッケージの概要」に出ます。英語のみ）：Translate English and Japanese pages, linked to their source. No API key needed with Chrome's built-in translator.
+- 短い説明（`public/_locales/ja/messages.json` の `extDescription`。ダッシュボードの「パッケージの概要」に出ます）：英語と日本語のページを、原文の位置と結んで翻訳。Chrome内蔵の翻訳ならAPIキー不要。
 - カテゴリ：仕事効率化（Productivity）
 - 言語：日本語
 - サポートURL：https://github.com/s-hiraoku/page-translate-extension/issues
@@ -18,6 +18,6 @@
 
 - アイコン：`public/icons/icon128.png`
 - 日本語プロモーションタイル：`store/images/store-tile.ja.png`（440×280）
-- スクリーンショット：`store/screenshots/screenshot-1.png`〜`-3.png`（1280×800、実機で撮影）
+- スクリーンショット：`store/screenshots/screenshot-ja-1.png`〜`-3.png`（1280×800、実機で撮影）
 - 任意のマーキー画像：未作成
 - プロモーション動画：なし

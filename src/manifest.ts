@@ -4,7 +4,8 @@ export default defineManifest({
   manifest_version: 3,
   name: "Page Translate",
   version: "1.8.1",
-  description: "Translate English and Japanese pages, linked to their source. No API key needed with Chrome's built-in translator.",
+  description: "__MSG_extDescription__",
+  default_locale: "en",
   minimum_chrome_version: "116",
   permissions: ["contextMenus", "sidePanel", "storage"],
   icons: {

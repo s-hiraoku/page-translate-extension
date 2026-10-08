@@ -3,7 +3,7 @@
 ## Product details
 
 - Name: Page Translate
-- Short description (manifest `description`, shown as the package summary): Translate English and Japanese pages, linked to their source. No API key needed with Chrome's built-in translator.
+- Short description (`public/_locales/en/messages.json` `extDescription`, shown as the package summary): Translate English and Japanese pages, linked to their source. No API key needed with Chrome's built-in translator.
 - Category: Productivity
 - Language: English
 - Support URL: https://github.com/s-hiraoku/page-translate-extension/issues
