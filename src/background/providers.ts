@@ -1,6 +1,7 @@
 import type { CandidateSegment, ComposeLanguage, DeepLPlan, Decision, EnglishVariant, TargetLanguage, WritingStyle } from "../shared/types";
 import { PROVIDER_KEYS_KEY, SETTINGS_KEY, DEFAULT_SETTINGS, resolveDeepLPlan, type ExtensionSettings, type ProviderKeys, type ProviderStatus } from "../shared/types";
 import { translateSegmentsWithClaude, translateTextWithClaude } from "./claude";
+import { GLOSSARY_KEY, parseGlossary, type GlossaryEntry } from "../shared/glossary";
 
 type DecisionResult = { decisions: Array<{ id: string; decision: Decision; confidence: number }> };
 type TranslationResult = { translations: Array<{ id: string; translatedText: string; translatedHtml: string }> };
@@ -193,7 +194,7 @@ async function translateSegmentsByClaude(
   validateSegments(segments);
   // Without the page's text from the panel, the passages themselves, in reading order, are the page.
   const context = pageText ?? [...segments].sort((a, b) => a.order - b.order).map((segment) => segment.sourceText).join("\n");
-  const html = await translateSegmentsWithClaude(apiKey, segments, targetLanguage, { pageTitle, pageText: context });
+  const html = await translateSegmentsWithClaude(apiKey, segments, targetLanguage, { pageTitle, pageText: context }, await readGlossary());
   return { translations: segments.map((segment, index) => ({ id: segment.id, translatedHtml: html[index] ?? "", translatedText: htmlToText(html[index] ?? "") })) };
 }
 
@@ -203,7 +204,13 @@ export async function translateSelectionText(text: string, targetLang: ComposeLa
   if (settings.translationProvider !== "claude") return translateText(text, targetLang);
   if (!keys.anthropicApiKey) throw new Error("設定画面でClaudeのAPIキーを登録してください。");
   validateComposeText(text);
-  return { text: await translateTextWithClaude(keys.anthropicApiKey, text, targetLang) };
+  return { text: await translateTextWithClaude(keys.anthropicApiKey, text, targetLang, await readGlossary()) };
+}
+
+async function readGlossary(): Promise<GlossaryEntry[]> {
+  const stored = await chrome.storage.local.get(GLOSSARY_KEY);
+  const text = stored[GLOSSARY_KEY];
+  return typeof text === "string" ? parseGlossary(text) : [];
 }
 
 /**

@@ -76,3 +76,12 @@ describe("sameTags", () => {
     expect(sameTags('<a href="/a b">x</a>', '<a href="/a  b">x</a>')).toBe(false);
   });
 });
+
+describe("buildPageMessage glossary", () => {
+  it("sends only the glossary terms the batch uses", () => {
+    const glossary = [{ term: "deploy", translation: "デプロイ" }, { term: "merge", translation: "マージ" }];
+    const message = JSON.parse(buildPageMessage([segment(1, "Deploy the app.")], "JA", { pageTitle: "", pageText: "" }, glossary));
+    expect(message.glossary).toEqual([{ term: "deploy", translation: "デプロイ" }]);
+    expect(JSON.parse(buildPageMessage([segment(1, "Hello.")], "JA", { pageTitle: "", pageText: "" }, glossary)).glossary).toBeUndefined();
+  });
+});

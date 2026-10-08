@@ -63,6 +63,12 @@ export function pageCacheKey(url: string, target: TargetLanguage, useJev: boolea
   return `${normalizePageUrl(url)}|${target}|${useJev ? "jev" : "nojev"}${provider === "deepl" ? "" : `|${provider}`}`;
 }
 
+/** The store without one translator's pages (Claude's, after the glossary changed). */
+export function withoutProvider(store: CacheStore, provider: TranslationProvider): CacheStore {
+  const suffix = `|${provider}`;
+  return { version: 1, pages: Object.fromEntries(Object.entries(store.pages).filter(([key]) => !key.endsWith(suffix))) };
+}
+
 /** Short stable hash of a text (SHA-256, first 16 hex digits). */
 export async function hashText(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));

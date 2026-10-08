@@ -635,4 +635,26 @@ test.describe("translating with Claude", () => {
     const save = (await sent(page)).find((message) => message.type === "SAVE_PROVIDER_KEYS");
     expect(save?.keys).toMatchObject({ anthropicApiKey: "sk-ant-test" });
   });
+
+  test("adds the programming terms to the glossary and saves it, dropping Claude's cached pages", async ({ page }) => {
+    const claudePage = { savedAt: Date.now(), usedAt: Date.now(), hashes: [], decisions: {}, translations: {} };
+    await openPanel(page, { stored: {
+      pageTranslateGlossary: "deploy = 配置\n",
+      pageTranslateCache: { version: 1, pages: { "https://example.com/|JA|jev|claude": claudePage, "https://example.com/|JA|jev": claudePage } },
+    } });
+    await page.getByRole("button", { name: "設定を開く" }).click();
+
+    const glossary = page.getByRole("textbox", { name: "用語集" });
+    await expect(glossary).toHaveValue("deploy = 配置\n");
+    await page.getByRole("button", { name: "プログラミング用語を追加" }).click();
+    await expect(glossary).toHaveValue(/pull request = プルリクエスト/);
+    await expect(glossary).not.toHaveValue(/deploy = デプロイ/);
+    await page.getByRole("button", { name: "用語集を保存" }).click();
+    await expect(page.getByText(/語を保存しました/)).toBeVisible();
+
+    const read = (key: string) => page.evaluate(async (name) => (await (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, unknown>> } } } }).chrome.storage.local.get(name))[name], key);
+    const stored = { pageTranslateGlossary: await read("pageTranslateGlossary"), pageTranslateCache: await read("pageTranslateCache") };
+    expect(stored.pageTranslateGlossary).toMatch(/^deploy = 配置\n\n# プログラミング\npull request = プルリクエスト/);
+    expect(Object.keys((stored.pageTranslateCache as { pages: object }).pages)).toEqual(["https://example.com/|JA|jev"]);
+  });
 });

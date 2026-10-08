@@ -22,6 +22,7 @@ import type {
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
+import { GLOSSARY_KEY, GLOSSARY_MAX_CHARS, PROGRAMMING_GLOSSARY, mergeGlossary, parseGlossary } from "../shared/glossary";
 import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
@@ -36,6 +37,7 @@ import {
   hashText,
   isUnchanged,
   pageCacheKey,
+  withoutProvider,
   prune,
   readCache,
   type CacheStore,
@@ -113,6 +115,10 @@ export function SidePanel() {
   const [deeplApiKey, setDeeplApiKey] = useState("");
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
+  /** The glossary as the reader is editing it, and as last saved. */
+  const [glossary, setGlossary] = useState("");
+  const [savedGlossary, setSavedGlossary] = useState("");
+  const [glossaryNote, setGlossaryNote] = useState("");
   const [consentOpen, setConsentOpen] = useState(false);
   const consentResolver = useRef<((agreed: boolean) => void) | null>(null);
   const [view, setView] = useState<"translate" | "compose">("translate");
@@ -210,6 +216,11 @@ export function SidePanel() {
       }
       setSettingsLoaded(true);
     }, () => setSettingsLoaded(true));
+    void chrome.storage.local.get(GLOSSARY_KEY).then((stored) => {
+      const text = typeof stored[GLOSSARY_KEY] === "string" ? stored[GLOSSARY_KEY] : "";
+      setGlossary(text);
+      setSavedGlossary(text);
+    }, () => undefined);
   }, []);
 
   // Expired translations go when the panel opens or the lifetime changes, and turning the cache off
@@ -1010,6 +1021,20 @@ export function SidePanel() {
     }
   }
 
+  async function saveGlossary(): Promise<void> {
+    if (glossary.length > GLOSSARY_MAX_CHARS) {
+      setGlossaryNote(`用語集が長すぎます（${GLOSSARY_MAX_CHARS.toLocaleString()}文字まで）。`);
+      return;
+    }
+    await chrome.storage.local.set({ [GLOSSARY_KEY]: glossary });
+    // Claude's cached pages were translated with the old glossary.
+    const store = await loadCacheStore();
+    await chrome.storage.local.set({ [CACHE_KEY]: withoutProvider(store, "claude") });
+    void refreshCacheInfo();
+    setSavedGlossary(glossary);
+    setGlossaryNote(`${parseGlossary(glossary).length}語を保存しました。`);
+  }
+
   async function clearProviderKeys(): Promise<void> {
     setError("");
     try {
@@ -1344,6 +1369,25 @@ export function SidePanel() {
             <Icon name="trash" />保存中のAPIキーを削除
           </button>
           <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）へ直接送信します。</p>
+
+          <h3 className="settings-section">用語集（Claude）</h3>
+          <p className="field-hint">翻訳サービスがClaudeのとき、ここに書いた訳語で翻訳します。1行に「用語 = 訳語」の形で書きます（表計算ソフトから2列を貼り付けても使えます）。#で始まる行はメモです。翻訳する文章に出てくる用語だけをClaudeに送ります。</p>
+          <textarea
+            id="glossary"
+            className="field compose-area"
+            aria-label="用語集"
+            spellCheck={false}
+            value={glossary}
+            onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
+            placeholder={"pull request = プルリクエスト\ndeploy = デプロイ"}
+          />
+          <button className="text-button" type="button" onClick={() => { setGlossary((current) => mergeGlossary(current, PROGRAMMING_GLOSSARY)); setGlossaryNote(""); }}>
+            <Icon name="pen" />プログラミング用語を追加
+          </button>
+          <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
+            用語集を保存
+          </button>
+          {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
         </section>
       ) : (
         <>
@@ -1494,7 +1538,7 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）も送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）、用語集のうち翻訳する文章に出てくる用語も送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe Jev、DeepL、Claude（Anthropic）です。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a> · <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">Anthropicのプライバシー情報</a></p>
             <div className="consent-actions">
