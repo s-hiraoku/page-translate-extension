@@ -22,7 +22,7 @@ import type {
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
+import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -98,6 +98,10 @@ export function SidePanel() {
   const [settings, setSettings] = useState<ExtensionSettings>(() => ({ ...DEFAULT_SETTINGS, theme: cachedTheme() }));
   const [entries, setEntries] = useState<TranslationEntry[]>([]);
   const [pageTitle, setPageTitle] = useState("");
+  /** The title as of the latest scan, for requests made before React re-renders (Claude reads it as context). */
+  const pageTitleRef = useRef("");
+  /** The text of every passage this page translates (cached ones too), as context for Claude. */
+  const pageTextRef = useRef("");
   const [pageUrl, setPageUrl] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,6 +111,7 @@ export function SidePanel() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [typesafeApiKey, setTypesafeApiKey] = useState("");
   const [deeplApiKey, setDeeplApiKey] = useState("");
+  const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
   const consentResolver = useRef<((agreed: boolean) => void) | null>(null);
@@ -555,6 +560,8 @@ export function SidePanel() {
     setError("");
     setStatus(INITIAL_STATUS);
     setPageTitle("");
+    pageTitleRef.current = "";
+    pageTextRef.current = "";
     setPageUrl("");
     setSelectedId(null);
     setListFolded(false);
@@ -604,7 +611,7 @@ export function SidePanel() {
     return current.translationProvider === "chrome" && !current.useJev ? true : ensureConsent();
   }
 
-  /** Selection translation sends the text to DeepL; Chrome's translator keeps it on this device. */
+  /** Selection translation sends the text to DeepL or Claude; Chrome's translator keeps it on this device. */
   async function consentForSelection(): Promise<boolean> {
     return currentSettings().translationProvider === "chrome" ? true : ensureConsent();
   }
@@ -729,6 +736,7 @@ export function SidePanel() {
       boundTabRef.current = scannedTab?.id ?? null;
       setWatchTabId(scannedTab?.id ?? null);
       setPageTitle(page.title);
+      pageTitleRef.current = page.title;
       setPageUrl(new URL(page.url).hostname);
       scannedPage = true;
       const candidates = page.segments.filter((segment) => !isInTargetLanguage(segment.sourceText, settings.targetLanguage));
@@ -782,6 +790,7 @@ export function SidePanel() {
       });
       const hashById = new Map(candidates.map((segment, index) => [segment.id, hashes[index] ?? ""]));
       const pending = next.filter((entry) => entry.state === "pending");
+      pageTextRef.current = pending.map((entry) => entry.sourceText).join("\n").slice(0, CLAUDE_CONTEXT_CHARS);
       const toTranslate: TranslationEntry[] = [];
       let reused = 0;
       for (const entry of pending) {
@@ -886,10 +895,10 @@ export function SidePanel() {
     setCacheNote(null);
   }
 
-  /** Translates with the chosen service: DeepL through the service worker, or Chrome's translator right here. */
+  /** Translates with the chosen service: DeepL or Claude through the service worker, or Chrome's translator right here. */
   async function translateSegmentsWith(segments: CandidateSegment[], current: ExtensionSettings): Promise<TranslationResult> {
     if (current.translationProvider !== "chrome") {
-      return sendMessage<TranslationResult>({ type: "TRANSLATE_SEGMENTS", segments, targetLanguage: current.targetLanguage });
+      return sendMessage<TranslationResult>({ type: "TRANSLATE_SEGMENTS", segments, targetLanguage: current.targetLanguage, pageTitle: pageTitleRef.current, pageText: pageTextRef.current || undefined });
     }
     setDownloadProgressListener((percent) => setStatus(`Chromeの翻訳モデルをダウンロードしています… ${percent}%`));
     const texts = await translateWithChrome(segments.map((segment) => segment.sourceText), current.targetLanguage);
@@ -981,17 +990,18 @@ export function SidePanel() {
   }
 
   async function saveProviderKeys(): Promise<void> {
-    if (!typesafeApiKey.trim() && !deeplApiKey.trim()) {
+    if (!typesafeApiKey.trim() && !deeplApiKey.trim() && !anthropicApiKey.trim()) {
       setError("保存するAPIキーを入力してください。");
       return;
     }
     setSavingKeys(true);
     setError("");
     try {
-      const result = await sendMessage<ProviderStatus>({ type: "SAVE_PROVIDER_KEYS", typesafeApiKey, deeplApiKey });
+      const result = await sendMessage<ProviderStatus>({ type: "SAVE_PROVIDER_KEYS", keys: { typesafeApiKey, deeplApiKey, anthropicApiKey } });
       setProviderStatus(result);
       setTypesafeApiKey("");
       setDeeplApiKey("");
+      setAnthropicApiKey("");
       setStatus("APIキーをこのChromeセッション中だけ保存しました。");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -1007,6 +1017,7 @@ export function SidePanel() {
       setProviderStatus(result);
       setTypesafeApiKey("");
       setDeeplApiKey("");
+      setAnthropicApiKey("");
       setStatus("保存中のAPIキーを削除しました。");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -1172,11 +1183,13 @@ export function SidePanel() {
           <SettingHeading id="provider-label" label="翻訳に使うサービス" help={help}>
             <b>Chrome内蔵</b>：Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。パソコン版のChrome 138以降で使えます。<br />
             <b>DeepL</b>：DeepLで翻訳します。DeepLのAPIキーが必要です。<br />
-            英作文は、どちらを選んでもDeepLを使います。
+            <b>Claude</b>：AnthropicのClaudeが、ページ全体の流れを見て翻訳します。用語や文体がそろいやすい一方、DeepLより時間がかかります。ClaudeのAPIキーが必要です（Claude Maxなどのプランに付く月額APIクレジットも使えます）。<br />
+            英作文は、どれを選んでもDeepLを使います。
           </SettingHeading>
           <div className="mode-switch" role="radiogroup" aria-labelledby="provider-label">
             {([
               { value: "deepl", label: "DeepL" },
+              { value: "claude", label: "Claude" },
               { value: "chrome", label: "Chrome内蔵" },
             ] as const).map((option) => (
               <button
@@ -1297,6 +1310,16 @@ export function SidePanel() {
             <input id="typesafe-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={typesafeApiKey} onChange={(event) => setTypesafeApiKey(event.target.value)} placeholder={providerStatus?.providers.jev ? "登録済み · 変更時だけ入力" : "TypeSafe JevのAPIキー"} />
           </div>
 
+          <div className={`provider-card ${applied.translationProvider === "claude" ? "" : "unused"}`}>
+            <div className="provider-card-heading">
+              <div><h3>Claude</h3><p>{applied.translationProvider === "claude" ? "ページの本文を翻訳します。" : "翻訳サービスでClaudeを選ぶと使います。"}</p></div>
+              <span className={`badge ${providerStatus?.providers.claude ? "ready" : "missing"}`}>{providerStatus?.providers.claude ? "登録済み" : "未設定"}</span>
+            </div>
+            <label className="field-label" htmlFor="anthropic-api-key">APIキー</label>
+            <input id="anthropic-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={anthropicApiKey} onChange={(event) => setAnthropicApiKey(event.target.value)} placeholder={providerStatus?.providers.claude ? "登録済み · 変更時だけ入力" : "ClaudeのAPIキー（sk-ant-…）"} />
+            <p className="field-hint">Claude Consoleで作ったAPIキーです。Claude Max・Teamプランの月額APIクレジットは、Consoleの組織に受け取るとこのキーで使えます。</p>
+          </div>
+
           <div className="provider-card">
             <div className="provider-card-heading">
               <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
@@ -1317,10 +1340,10 @@ export function SidePanel() {
           <button className="button primary block" type="button" onClick={() => void saveProviderKeys()} disabled={savingKeys}>
             <Icon name="key" />{savingKeys ? "保存しています…" : "APIキーを保存"}
           </button>
-          <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl}>
+          <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl && !providerStatus?.providers.claude}>
             <Icon name="trash" />保存中のAPIキーを削除
           </button>
-          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe JevまたはDeepLへ直接送信します。</p>
+          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）へ直接送信します。</p>
         </section>
       ) : (
         <>
@@ -1429,11 +1452,17 @@ export function SidePanel() {
               <ol className="steps">
                 <li><span>1</span>本文を抽出</li>
                 <li><span>2</span>{applied.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
-                <li><span>3</span>{applied.translationProvider === "chrome" ? "Chromeで翻訳" : "DeepLで翻訳"}</li>
+                <li><span>3</span>{applied.translationProvider === "chrome" ? "Chromeで翻訳" : applied.translationProvider === "claude" ? "Claudeで翻訳" : "DeepLで翻訳"}</li>
               </ol>
               {applied.translationProvider === "deepl" && providerStatus && !providerStatus.providers.deepl && (
                 <p className="setup-hint">
                   はじめに、DeepLのAPIキーを登録してください（TypeSafe Jevは、設定でオフにすれば不要です）。
+                  <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
+                </p>
+              )}
+              {applied.translationProvider === "claude" && providerStatus && !providerStatus.providers.claude && (
+                <p className="setup-hint">
+                  はじめに、ClaudeのAPIキーを登録してください。
                   <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
                 </p>
               )}
@@ -1465,9 +1494,9 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章がDeepLに送られます（設定でJevを使わない場合は、抽出した文章をDeepLにだけ送ります）。選択範囲翻訳では、選んだ文章がDeepLにだけ送られます。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
-            <p>送信先はTypeSafe JevとDeepLです。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
-            <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a></p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）も送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p>送信先はTypeSafe Jev、DeepL、Claude（Anthropic）です。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
+            <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a> · <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">Anthropicのプライバシー情報</a></p>
             <div className="consent-actions">
               <button className="button secondary" type="button" onClick={() => void answerConsent(false)}>キャンセル</button>
               <button className="button primary" type="button" onClick={() => void answerConsent(true)}>同意して続ける</button>
@@ -1515,7 +1544,8 @@ function privacySummary(settings: ExtensionSettings): string {
   if (settings.translationProvider === "chrome") {
     return settings.useJev ? "翻訳時は本文候補をJevへ送信。翻訳はこの端末の中で行います" : "翻訳はこの端末の中で行い、外部へは送信しません";
   }
-  return settings.useJev ? "翻訳時は本文候補をJevへ、選ばれた文章をDeepLへ送信" : "翻訳時は本文をDeepLへ送信（Jevは不使用）";
+  const translator = settings.translationProvider === "claude" ? "Claude" : "DeepL";
+  return settings.useJev ? `翻訳時は本文候補をJevへ、選ばれた文章を${translator}へ送信` : `翻訳時は本文を${translator}へ送信（Jevは不使用）`;
 }
 
 async function sendMessage<T = unknown>(message: ExtensionMessage): Promise<T> {

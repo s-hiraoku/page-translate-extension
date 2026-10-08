@@ -97,7 +97,8 @@ export interface ExtensionSettings {
   /**
    * Who translates: Chrome's built-in translator (desktop Chrome 138+, runs on this device, no key;
    * the default for new installs, falling back to DeepL where Chrome has none) or DeepL (sent over
-   * the network). Installs from before it existed keep DeepL.
+   * the network) or Claude (sent over the network, with the reader's Anthropic API key). Installs from
+   * before the built-in translator existed keep DeepL.
    */
   translationProvider: TranslationProvider;
   /** How page select mode picks a card: clicking the text, or resting the pointer on it. */
@@ -106,13 +107,13 @@ export interface ExtensionSettings {
 
 export type PageSelectTrigger = "click" | "hover";
 
-export type TranslationProvider = "deepl" | "chrome";
+export type TranslationProvider = "deepl" | "chrome" | "claude";
 
 export const SETTINGS_KEY = "pageTranslateSettings";
 export const PROVIDER_KEYS_KEY = "pageTranslateProviderKeys";
 export const DATA_USE_CONSENT_KEY = "pageTranslateDataUseConsentVersion";
-/** 2: the English writing check also sends the reader's own text to DeepL. */
-export const DATA_USE_CONSENT_VERSION = 2;
+/** 2: the English writing check also sends the reader's own text to DeepL. 3: text may go to Claude (Anthropic). */
+export const DATA_USE_CONSENT_VERSION = 3;
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   targetLanguage: "JA",
   displayMode: "source-panel",
@@ -132,11 +133,12 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
 export type ExtensionMessage =
   | { type: "OPEN_SIDE_PANEL" }
   | { type: "CHECK_PROVIDERS" }
-  | { type: "SAVE_PROVIDER_KEYS"; typesafeApiKey: string; deeplApiKey: string }
+  | { type: "SAVE_PROVIDER_KEYS"; keys: Partial<ProviderKeys> }
   | { type: "CLEAR_PROVIDER_KEYS" }
   | { type: "SCAN_ACTIVE_TAB" }
   | { type: "CLASSIFY_CANDIDATES"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; mainContentDetected?: boolean }
-  | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage }
+  // pageTitle and pageText are context for Claude: pageText is the page's text to translate, cached passages included.
+  | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; pageText?: string }
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
   | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string; scroll?: boolean }
@@ -212,6 +214,9 @@ export type PageWatchEvent = { type: "navigated" };
 /** Port name for selection translation: the side panel connects to the tab while the mode is on. */
 export const SELECTION_PORT = "selection-translate";
 
+/** How much of the page's text goes to Claude as context with each batch of passages. */
+export const CLAUDE_CONTEXT_CHARS = 4_000;
+
 /** Longest selection that is translated (DeepL characters are billed). */
 export const SELECTION_MAX_CHARS = 5000;
 
@@ -228,8 +233,15 @@ export interface RuntimeError {
   error: string;
 }
 
+/** API keys the reader registers in Settings. */
+export interface ProviderKeys {
+  typesafeApiKey: string;
+  deeplApiKey: string;
+  anthropicApiKey: string;
+}
+
 export interface ProviderStatus {
-  providers: { jev: boolean; deepl: boolean };
+  providers: { jev: boolean; deepl: boolean; claude: boolean };
   /** DeepL plan the registered key is used with (after "auto" detection); null without a key. */
   deeplPlan: DeepLPlan | null;
 }
