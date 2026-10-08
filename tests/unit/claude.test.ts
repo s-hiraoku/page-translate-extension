@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchSegments, buildPageMessage, readTranslations } from "../../src/background/claude";
+import { batchSegments, buildPageMessage, readTranslations, sameTags } from "../../src/background/claude";
 import type { CandidateSegment } from "../../src/shared/types";
 
 function segment(id: number, sourceHtml: string): CandidateSegment {
@@ -12,15 +12,33 @@ function segment(id: number, sourceHtml: string): CandidateSegment {
 describe("readTranslations", () => {
   it("returns translations in passage order, whatever order Claude answers in", () => {
     const answer = JSON.stringify({ translations: [{ n: 2, html: "二" }, { n: 1, html: "<b>一</b>" }] });
-    expect(readTranslations(2, answer)).toEqual(["<b>一</b>", "二"]);
+    expect(readTranslations(["<b>one</b>", "two"], answer)).toEqual(["<b>一</b>", "二"]);
   });
 
   it("fails when a passage is missing", () => {
-    expect(() => readTranslations(2, JSON.stringify({ translations: [{ n: 1, html: "一" }] }))).toThrow("翻訳数が一致しません");
+    expect(() => readTranslations(["one", "two"], JSON.stringify({ translations: [{ n: 1, html: "一" }] }))).toThrow("翻訳数が一致しません");
+  });
+
+  it("fails on a repeated, extra or out-of-range number", () => {
+    const sources = ["one", "two"];
+    const answer = (numbers: number[]) => JSON.stringify({ translations: numbers.map((n) => ({ n, html: String(n) })) });
+    expect(() => readTranslations(sources, answer([1, 1, 2]))).toThrow("翻訳数が一致しません");
+    expect(() => readTranslations(sources, answer([1, 2, 3]))).toThrow("翻訳数が一致しません");
+    expect(() => readTranslations(sources, answer([1, 3]))).toThrow("翻訳数が一致しません");
+    expect(() => readTranslations(sources, answer([1, 1.5]))).toThrow("翻訳数が一致しません");
+  });
+
+  it("keeps only the text of a translation whose tags changed", () => {
+    const sources = ['See <a href="https://example.com/a">the guide</a>.', 'Run <code>npm test</code> now.'];
+    const answer = JSON.stringify({ translations: [
+      { n: 1, html: '<a href="https://evil.example/">ガイド</a>を参照してください。' },
+      { n: 2, html: '今すぐ<code>npm test</code>を実行します。' },
+    ] });
+    expect(readTranslations(sources, answer)).toEqual(["ガイドを参照してください。", "今すぐ<code>npm test</code>を実行します。"]);
   });
 
   it("fails on an answer that is not JSON", () => {
-    expect(() => readTranslations(1, "not json")).toThrow("読み取れない");
+    expect(() => readTranslations(["one"], "not json")).toThrow("読み取れない");
   });
 });
 
@@ -44,5 +62,16 @@ describe("buildPageMessage", () => {
     expect(message.page_title).toBe("Title");
     expect(message.page_context).toBe("Hello\nWorld");
     expect(message.passages).toEqual([{ n: 1, html: "<a href=\"/x\">Hello</a>" }, { n: 2, html: "World" }]);
+  });
+});
+
+describe("sameTags", () => {
+  it("allows a link to move within the sentence", () => {
+    expect(sameTags('Read <a href="/x">this</a> first, <em>then</em> that.', '<em>次に</em>、まず<a href="/x">これ</a>を読みます。')).toBe(true);
+  });
+
+  it("rejects an added element or a changed attribute", () => {
+    expect(sameTags("Plain text.", '<img src="x">テキスト。')).toBe(false);
+    expect(sameTags('<a href="/x">x</a>', '<a href="/y">x</a>')).toBe(false);
   });
 });

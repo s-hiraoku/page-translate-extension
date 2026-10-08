@@ -609,10 +609,10 @@ test.describe("the list with translations shown in the page", () => {
 });
 
 test.describe("translating with Claude", () => {
-  type Sent = Array<{ type: string; pageTitle?: string; keys?: Record<string, string> }>;
+  type Sent = Array<{ type: string; pageTitle?: string; pageText?: string; segments?: Array<{ sourceText: string }>; keys?: Record<string, string> }>;
   const sent = (page: Page) => page.evaluate(() => (window as unknown as { __sent: Sent }).__sent);
 
-  test("sends the page title along with the passages", async ({ page }) => {
+  test("sends the page title and the page's text along with the passages", async ({ page }) => {
     const errors = await openPanel(page, { settings: { translationProvider: "claude" } });
     await expect(page.locator(".steps")).toContainText("Claudeで翻訳");
     await translate(page);
@@ -620,6 +620,7 @@ test.describe("translating with Claude", () => {
     expect(await cardIds(page)).toEqual(["segment-1", "segment-2", "segment-4", "segment-5"]);
     const request = (await sent(page)).find((message) => message.type === "TRANSLATE_SEGMENTS");
     expect(request?.pageTitle).toBe("Designing calm interfaces");
+    for (const segment of request?.segments ?? []) expect(request?.pageText).toContain(segment.sourceText);
     expect(errors).toEqual([]);
   });
 

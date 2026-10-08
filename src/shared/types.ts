@@ -137,7 +137,8 @@ export type ExtensionMessage =
   | { type: "CLEAR_PROVIDER_KEYS" }
   | { type: "SCAN_ACTIVE_TAB" }
   | { type: "CLASSIFY_CANDIDATES"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; mainContentDetected?: boolean }
-  | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string }
+  // pageTitle and pageText are context for Claude: pageText is the page's text to translate, cached passages included.
+  | { type: "TRANSLATE_SEGMENTS"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; pageText?: string }
   | { type: "APPLY_TRANSLATIONS"; entries: TranslationEntry[] }
   | { type: "RESTORE_PAGE" }
   | { type: "FOCUS_SEGMENT"; segmentId: string; anchor?: FocusAnchor; label?: string; color?: string; scroll?: boolean }
@@ -212,6 +213,9 @@ export type PageWatchEvent = { type: "navigated" };
 
 /** Port name for selection translation: the side panel connects to the tab while the mode is on. */
 export const SELECTION_PORT = "selection-translate";
+
+/** How much of the page's text goes to Claude as context with each batch of passages. */
+export const CLAUDE_CONTEXT_CHARS = 4_000;
 
 /** Longest selection that is translated (DeepL characters are billed). */
 export const SELECTION_MAX_CHARS = 5000;

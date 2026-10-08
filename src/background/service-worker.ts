@@ -188,7 +188,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
         articleTitle: message.segments.find((segment) => segment.isArticleTitle)?.sourceText ?? "",
       });
     case "TRANSLATE_SEGMENTS":
-      return translateSegments(message.segments, message.targetLanguage, message.pageTitle);
+      return translateSegments(message.segments, message.targetLanguage, message.pageTitle, message.pageText);
     // The writing check sends the reader's own text: only the side panel may ask for it.
     case "COMPOSE_TRANSLATE":
       requireExtensionPage(sender);

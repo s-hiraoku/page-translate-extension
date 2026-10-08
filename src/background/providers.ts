@@ -148,9 +148,10 @@ export async function translateSegments(
   segments: CandidateSegment[],
   targetLanguage: TargetLanguage,
   pageTitle = "",
+  pageText?: string,
 ): Promise<TranslationResult> {
   const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
-  if (settings.translationProvider === "claude") return translateSegmentsByClaude(keys.anthropicApiKey, segments, targetLanguage, pageTitle);
+  if (settings.translationProvider === "claude") return translateSegmentsByClaude(keys.anthropicApiKey, segments, targetLanguage, pageTitle, pageText);
   const { key, host } = await deeplAccess();
   validateSegments(segments);
   const translations: TranslationResult["translations"] = [];
@@ -186,12 +187,13 @@ async function translateSegmentsByClaude(
   segments: CandidateSegment[],
   targetLanguage: TargetLanguage,
   pageTitle: string,
+  pageText?: string,
 ): Promise<TranslationResult> {
   if (!apiKey) throw new Error("設定画面でClaudeのAPIキーを登録してください。");
   validateSegments(segments);
-  // The passages themselves, in reading order, are the page as Claude sees it.
-  const pageText = [...segments].sort((a, b) => a.order - b.order).map((segment) => segment.sourceText).join("\n");
-  const html = await translateSegmentsWithClaude(apiKey, segments, targetLanguage, { pageTitle, pageText });
+  // Without the page's text from the panel, the passages themselves, in reading order, are the page.
+  const context = pageText ?? [...segments].sort((a, b) => a.order - b.order).map((segment) => segment.sourceText).join("\n");
+  const html = await translateSegmentsWithClaude(apiKey, segments, targetLanguage, { pageTitle, pageText: context });
   return { translations: segments.map((segment, index) => ({ id: segment.id, translatedHtml: html[index] ?? "", translatedText: htmlToText(html[index] ?? "") })) };
 }
 

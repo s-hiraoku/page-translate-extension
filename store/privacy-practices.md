@@ -8,7 +8,7 @@ Translate between English and Japanese: text from the page the user chooses (Typ
 
 ## Data handled
 
-- Website content: page title, extracted text candidates, and text-location labels. Sent to TypeSafe Jev for classification; only selected text is sent to DeepL, or to Claude (Anthropic) with the page title when the user chooses Claude as the translation service.
+- Website content: page title, extracted text candidates, and text-location labels. Sent to TypeSafe Jev for classification; only selected text is sent to DeepL, or to Claude (Anthropic) with the page title and up to 4,000 characters of the page text as context when the user chooses Claude as the translation service.
 - User-entered text (writing check): English and optional Japanese text the user types in the side panel, and, if the user keeps "use the open page as context" on, the page title and main text. Sent directly to DeepL (translate, and DeepL Write with API Pro keys). Not stored. Check which Dashboard category fits (likely "Personal communications" or "Website content") before submitting.
 - Authentication information: user-provided TypeSafe Jev, DeepL and Anthropic (Claude) API keys. Held in Chrome session storage and sent to the respective provider only for authentication.
 - Web browsing activity: the active page URL is read to show its hostname in the panel. The URL is not included in the provider request bodies.
@@ -23,7 +23,7 @@ All handled data is used only to provide the user-facing translation feature (in
 - API keys: Chrome `storage.session` (in-memory for the extension's current session); cleared on browser restart, extension disable, reload, or update. The user can clear them in Settings.
 - Settings and consent state: Chrome `storage.local`, not Chrome Sync.
 - Translation cache: Chrome `storage.local` on the user's device only (never sent anywhere, not Chrome Sync). Per translated page it keeps the page address without fragment and tracking parameters, short hashes of the translated passages, Jev's verdicts and the translations, for the lifetime the user chooses (1, 3 or 24 hours; 3 by default), up to 30 pages. Expired entries are deleted automatically; turning the cache off in Settings deletes it; "Delete cache" clears it on demand. Removed with the extension.
-- Selection translation: the selected text is sent only to the chosen translation service, DeepL or Claude (not Jev). Its translation is kept in the side panel's memory for the panel's lifetime (latest 50) and never persisted. With "Translate as I select" on (off by default; Settings or the right-click menu), selections are sent to DeepL the same way while the panel is closed, and their translations are kept only in the service worker's memory (latest 50), never persisted.
+- Selection translation: the selected text is sent only to the chosen translation service, DeepL or Claude (not Jev). Its translation is kept in the side panel's memory for the panel's lifetime (latest 50) and never persisted. With "Translate as I select" on (off by default; Settings or the right-click menu), selections are sent to the chosen service (DeepL or Claude) the same way while the panel is closed, and their translations are kept only in the service worker's memory (latest 50), never persisted.
 - Page text and writing check input outside the cache: held in panel/page memory only; not persisted by the extension.
 
 ## Privacy policy and limited use certification
@@ -32,7 +32,7 @@ Privacy policy URL (after deployment and HTTP 200 verification): https://s-hirao
 
 Suggested Limited Use statement:
 
-> Page Translate uses page text, page titles, location labels, the active page URL, user-provided provider API keys, and extension settings only to provide its page-translation feature. Candidate text is sent directly to TypeSafe Jev for classification; only selected text is sent directly to DeepL for translation. The extension developer does not receive or store this data and does not use it for advertising, sale, profiling, or any unrelated purpose. API keys remain in Chrome session memory and are cleared when the Chrome session or extension session ends. The extension does not collect analytics or telemetry.
+> Page Translate uses page text, page titles, location labels, the active page URL, user-provided provider API keys, and extension settings only to provide its page-translation feature. Candidate text is sent directly to TypeSafe Jev for classification; only selected text is sent directly to DeepL or Anthropic (Claude), whichever the user chooses, for translation. The extension developer does not receive or store this data and does not use it for advertising, sale, profiling, or any unrelated purpose. API keys remain in Chrome session memory and are cleared when the Chrome session or extension session ends. The extension does not collect analytics or telemetry.
 
 ## Reviewer notes
 

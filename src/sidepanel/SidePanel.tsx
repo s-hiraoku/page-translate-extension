@@ -22,7 +22,7 @@ import type {
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
+import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -100,6 +100,8 @@ export function SidePanel() {
   const [pageTitle, setPageTitle] = useState("");
   /** The title as of the latest scan, for requests made before React re-renders (Claude reads it as context). */
   const pageTitleRef = useRef("");
+  /** The text of every passage this page translates (cached ones too), as context for Claude. */
+  const pageTextRef = useRef("");
   const [pageUrl, setPageUrl] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -559,6 +561,7 @@ export function SidePanel() {
     setStatus(INITIAL_STATUS);
     setPageTitle("");
     pageTitleRef.current = "";
+    pageTextRef.current = "";
     setPageUrl("");
     setSelectedId(null);
     setListFolded(false);
@@ -787,6 +790,7 @@ export function SidePanel() {
       });
       const hashById = new Map(candidates.map((segment, index) => [segment.id, hashes[index] ?? ""]));
       const pending = next.filter((entry) => entry.state === "pending");
+      pageTextRef.current = pending.map((entry) => entry.sourceText).join("\n").slice(0, CLAUDE_CONTEXT_CHARS);
       const toTranslate: TranslationEntry[] = [];
       let reused = 0;
       for (const entry of pending) {
@@ -894,7 +898,7 @@ export function SidePanel() {
   /** Translates with the chosen service: DeepL or Claude through the service worker, or Chrome's translator right here. */
   async function translateSegmentsWith(segments: CandidateSegment[], current: ExtensionSettings): Promise<TranslationResult> {
     if (current.translationProvider !== "chrome") {
-      return sendMessage<TranslationResult>({ type: "TRANSLATE_SEGMENTS", segments, targetLanguage: current.targetLanguage, pageTitle: pageTitleRef.current });
+      return sendMessage<TranslationResult>({ type: "TRANSLATE_SEGMENTS", segments, targetLanguage: current.targetLanguage, pageTitle: pageTitleRef.current, pageText: pageTextRef.current || undefined });
     }
     setDownloadProgressListener((percent) => setStatus(`Chromeの翻訳モデルをダウンロードしています… ${percent}%`));
     const texts = await translateWithChrome(segments.map((segment) => segment.sourceText), current.targetLanguage);
@@ -1490,7 +1494,7 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルも文脈として送ります。選択範囲翻訳では、選んだ文章が翻訳サービスにだけ送られます。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）も送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe Jev、DeepL、Claude（Anthropic）です。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a> · <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">Anthropicのプライバシー情報</a></p>
             <div className="consent-actions">

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { CandidateSegment, ComposeLanguage, TargetLanguage } from "../shared/types";
+import { CLAUDE_CONTEXT_CHARS, type CandidateSegment, type ComposeLanguage, type TargetLanguage } from "../shared/types";
 
 /**
  * Claude as the translator. Unlike DeepL, which sees each passage with at most a few thousand
@@ -12,8 +12,6 @@ export const CLAUDE_MODEL = "claude-opus-5-5";
 const BATCH_CHARS = 12_000;
 const BATCH_COUNT = 40;
 const PARALLEL = 4;
-/** How much of the page's text goes along with every batch as context. */
-const CONTEXT_CHARS = 4_000;
 
 const PAGE_SYSTEM = [
   "You translate the text of a web page for a reader. You get the page's title, a context excerpt of the page, and a numbered list of passages in reading order. Each passage is an HTML fragment.",
@@ -72,7 +70,7 @@ export async function translateSegmentsWithClaude(
       const index = next++;
       const batch = batches[index]!;
       const answer = await askClaude(apiKey, PAGE_SYSTEM, PAGE_SCHEMA, buildPageMessage(batch, targetLanguage, page));
-      results[index] = readTranslations(batch.length, answer);
+      results[index] = readTranslations(batch.map((segment) => segment.sourceHtml), answer);
     }
   }));
   return results.flat();
@@ -96,13 +94,18 @@ export function buildPageMessage(batch: CandidateSegment[], targetLanguage: Targ
   return JSON.stringify({
     target_language: languageName(targetLanguage),
     page_title: page.pageTitle.slice(0, 200),
-    page_context: page.pageText.slice(0, CONTEXT_CHARS),
+    page_context: page.pageText.slice(0, CLAUDE_CONTEXT_CHARS),
     passages: batch.map((segment, index) => ({ n: index + 1, html: segment.sourceHtml })),
   });
 }
 
-/** Claude's answer as translations in passage order. A passage left out is an error, not a gap. */
-export function readTranslations(count: number, answer: string): string[] {
+/**
+ * Claude's answer as translations in passage order. The answer must number every passage once:
+ * a passage left out, repeated or added is an error, not a gap. A translation whose tags differ
+ * from its source (a link pointing elsewhere, an element added) keeps its text only.
+ */
+export function readTranslations(sources: string[], answer: string): string[] {
+  const count = sources.length;
   let parsed: unknown;
   try {
     parsed = JSON.parse(answer);
@@ -111,14 +114,29 @@ export function readTranslations(count: number, answer: string): string[] {
   }
   const list = typeof parsed === "object" && parsed !== null ? (parsed as { translations?: unknown }).translations : undefined;
   const byNumber = new Map<number, string>();
-  if (Array.isArray(list)) {
+  if (Array.isArray(list) && list.length === count) {
     for (const item of list as Array<{ n?: unknown; html?: unknown }>) {
-      if (typeof item?.n === "number" && typeof item.html === "string") byNumber.set(item.n, item.html);
+      const n = item?.n;
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > count || byNumber.has(n) || typeof item.html !== "string") break;
+      byNumber.set(n, item.html);
     }
   }
-  const translations = Array.from({ length: count }, (_, index) => byNumber.get(index + 1));
-  if (translations.some((html) => html === undefined)) throw new Error("Claudeから返された翻訳数が一致しません。");
-  return translations as string[];
+  if (byNumber.size !== count) throw new Error("Claudeから返された翻訳数が一致しません。");
+  return sources.map((source, index) => {
+    const html = byNumber.get(index + 1) as string;
+    return sameTags(source, html) ? html : html.replace(/<[^>]*>/g, "");
+  });
+}
+
+/**
+ * Whether two fragments have the same tags, attributes included. Order is not compared:
+ * a translation may move a link within its sentence.
+ */
+export function sameTags(source: string, translated: string): boolean {
+  const tags = (html: string) => (html.match(/<[^>]*>/g) ?? []).map((tag) => tag.replace(/\s+/g, " ")).sort();
+  const a = tags(source);
+  const b = tags(translated);
+  return a.length === b.length && a.every((tag, index) => tag === b[index]);
 }
 
 export function batchSegments(segments: CandidateSegment[]): CandidateSegment[][] {
