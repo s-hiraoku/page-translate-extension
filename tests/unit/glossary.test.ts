@@ -22,6 +22,17 @@ describe("glossaryFor", () => {
     expect(glossaryFor(entries, "Open a Pull Request. The prototype works.")).toEqual([{ term: "pull request", translation: "プルリクエスト" }]);
   });
 
+  it("does not match a katakana term inside a longer katakana word", () => {
+    const katakana = parseGlossary("class = クラス");
+    expect(glossaryFor(katakana, "クラスターを作ります。")).toEqual([]);
+    expect(glossaryFor(katakana, "クラスを作ります。")).toEqual([{ term: "クラス", translation: "class" }]);
+  });
+
+  it("matches in the translation's direction first when asked, for text with both sides", () => {
+    expect(glossaryFor(entries, "deploy（デプロイ）します。", true)).toEqual([{ term: "デプロイ", translation: "deploy" }]);
+    expect(glossaryFor(entries, "deploy（デプロイ）します。")).toEqual([{ term: "deploy", translation: "デプロイ" }]);
+  });
+
   it("works the other way for text in the translation's language", () => {
     expect(glossaryFor(entries, "本番環境にデプロイします。")).toEqual([{ term: "デプロイ", translation: "deploy" }]);
   });

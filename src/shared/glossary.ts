@@ -32,13 +32,17 @@ export function parseGlossary(text: string): GlossaryEntry[] {
 /**
  * The entries a text uses, as the term found in the text and how to render it. An entry works both
  * ways: when the text has the translation instead (a Japanese page translated into English), it is
- * rendered as the term.
+ * rendered as the term. `reverseFirst` tries that direction first, for text translated into the
+ * terms' language.
  */
-export function glossaryFor(entries: GlossaryEntry[], text: string): GlossaryEntry[] {
+export function glossaryFor(entries: GlossaryEntry[], text: string, reverseFirst = false): GlossaryEntry[] {
   const used: GlossaryEntry[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
-    const found = contains(text, entry.term) ? entry : contains(text, entry.translation) ? { term: entry.translation, translation: entry.term } : null;
+    const reversed = { term: entry.translation, translation: entry.term };
+    // A text with both sides is matched in the direction the translation goes.
+    const [first, second] = reverseFirst ? [reversed, entry] : [entry, reversed];
+    const found = contains(text, first.term) ? first : contains(text, second.term) ? second : null;
     if (!found || seen.has(found.term.toLowerCase())) continue;
     seen.add(found.term.toLowerCase());
     used.push(found);
@@ -46,11 +50,17 @@ export function glossaryFor(entries: GlossaryEntry[], text: string): GlossaryEnt
   return used;
 }
 
-/** Case-insensitive; a Latin-script term must stand as a word, so "type" does not match "prototype". */
+/**
+ * Case-insensitive; a Latin-script term must stand as a word, so "type" does not match "prototype",
+ * and a katakana term likewise, so "クラス" does not match "クラスター".
+ */
 function contains(text: string, term: string): boolean {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const start = /^[A-Za-z0-9_]/.test(term) ? "(?<![A-Za-z0-9_])" : "";
-  const end = /[A-Za-z0-9_]$/.test(term) ? "(?![A-Za-z0-9_])" : "";
+  const edge = (char: string) => /[A-Za-z0-9_]/.test(char) ? "A-Za-z0-9_" : /[\u30A0-\u30FF]/.test(char) ? "\\u30A0-\\u30FF" : "";
+  const before = edge(term[0] ?? "");
+  const after = edge(term[term.length - 1] ?? "");
+  const start = before ? `(?<![${before}])` : "";
+  const end = after ? `(?![${after}])` : "";
   return new RegExp(`${start}${escaped}${end}`, "i").test(text);
 }
 

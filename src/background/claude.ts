@@ -84,7 +84,7 @@ export async function translateSegmentsWithClaude(
 
 /** Plain-text translation of a selection. */
 export async function translateTextWithClaude(apiKey: string, text: string, targetLang: ComposeLanguage, glossary: GlossaryEntry[] = []): Promise<string> {
-  const used = glossaryFor(glossary, text);
+  const used = glossaryFor(glossary, text, targetLang !== "JA");
   const answer = await askClaude(apiKey, TEXT_SYSTEM, TEXT_SCHEMA, JSON.stringify({
     target_language: languageName(targetLang),
     ...(used.length > 0 ? { glossary: used } : {}),
@@ -103,7 +103,7 @@ export async function translateTextWithClaude(apiKey: string, text: string, targ
 
 /** Only the glossary entries the batch's passages use are sent, so a long glossary costs little. */
 export function buildPageMessage(batch: CandidateSegment[], targetLanguage: TargetLanguage, page: PageContext, glossary: GlossaryEntry[] = []): string {
-  const used = glossaryFor(glossary, batch.map((segment) => segment.sourceText).join("\n"));
+  const used = glossaryFor(glossary, batch.map((segment) => segment.sourceText).join("\n"), targetLanguage !== "JA");
   return JSON.stringify({
     target_language: languageName(targetLanguage),
     page_title: page.pageTitle.slice(0, 200),

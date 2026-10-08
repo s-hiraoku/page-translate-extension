@@ -119,6 +119,8 @@ export function SidePanel() {
   const [glossary, setGlossary] = useState("");
   const [savedGlossary, setSavedGlossary] = useState("");
   const [glossaryNote, setGlossaryNote] = useState("");
+  /** Goes up on each glossary save, so a translation started before it is not cached. */
+  const glossaryRevision = useRef(0);
   const [consentOpen, setConsentOpen] = useState(false);
   const consentResolver = useRef<((agreed: boolean) => void) | null>(null);
   const [view, setView] = useState<"translate" | "compose">("translate");
@@ -763,6 +765,7 @@ export function SidePanel() {
       const useCache = settings.cacheEnabled;
       const hashes = useCache ? await Promise.all(candidates.map((segment) => hashText(segment.sourceText))) : [];
       const cacheKey = pageCacheKey(page.url, settings.targetLanguage, settings.useJev, settings.translationProvider);
+      const revision = glossaryRevision.current;
       const store = useCache ? await loadCacheStore() : emptyCache();
       if (stale()) return false;
       const cached = useCache && !fresh ? findPage(store, cacheKey, settings.cacheTtlHours, Date.now()) : null;
@@ -835,7 +838,7 @@ export function SidePanel() {
         }
       }
 
-      if (useCache && !stale()) {
+      if (useCache && !stale() && revision === glossaryRevision.current) {
         await saveToCache(cacheKey, cached, unchanged, hashes, candidates, byId, next).catch(() => undefined);
       }
       if (stale()) return false;
@@ -1027,7 +1030,9 @@ export function SidePanel() {
       return;
     }
     await chrome.storage.local.set({ [GLOSSARY_KEY]: glossary });
-    // Claude's cached pages were translated with the old glossary.
+    glossaryRevision.current += 1;
+    // Claude's cached pages and selections were translated with the old glossary.
+    for (const key of [...selectionCache.current.keys()]) if (key.startsWith("claude\n")) selectionCache.current.delete(key);
     const store = await loadCacheStore();
     await chrome.storage.local.set({ [CACHE_KEY]: withoutProvider(store, "claude") });
     void refreshCacheInfo();
