@@ -133,7 +133,8 @@ export function readTranslations(sources: string[], answer: string): string[] {
  * a translation may move a link within its sentence.
  */
 export function sameTags(source: string, translated: string): boolean {
-  const tags = (html: string) => (html.match(/<[^>]*>/g) ?? []).map((tag) => tag.replace(/\s+/g, " ")).sort();
+  // Compared exactly: whitespace inside an attribute value can change where a link points.
+  const tags = (html: string) => (html.match(/<[^>]*>/g) ?? []).slice().sort();
   const a = tags(source);
   const b = tags(translated);
   return a.length === b.length && a.every((tag, index) => tag === b[index]);

@@ -73,5 +73,6 @@ describe("sameTags", () => {
   it("rejects an added element or a changed attribute", () => {
     expect(sameTags("Plain text.", '<img src="x">テキスト。')).toBe(false);
     expect(sameTags('<a href="/x">x</a>', '<a href="/y">x</a>')).toBe(false);
+    expect(sameTags('<a href="/a b">x</a>', '<a href="/a  b">x</a>')).toBe(false);
   });
 });
