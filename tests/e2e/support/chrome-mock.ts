@@ -17,7 +17,7 @@ export interface MockOptions {
   /** Extra chrome.storage.local values present when the panel opens. */
   stored?: Record<string, unknown>;
   /** Which API keys are registered; both by default. */
-  providers?: { jev: boolean; deepl: boolean };
+  providers?: { jev: boolean; deepl: boolean; claude?: boolean };
   /**
    * Chrome's built-in Translator API, absent by default (as in Playwright's Chromium). "downloadable"
    * reports download progress when created; window.__translatorCreates counts creations.
@@ -183,7 +183,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         },
       },
     };
-  }, { segments: SEGMENTS, consent: options.consent === undefined ? 2 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true }, translator: options.translator ?? null });
+  }, { segments: SEGMENTS, consent: options.consent === undefined ? 3 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true, claude: true }, translator: options.translator ?? null });
 }
 
 /** Message types the panel has sent so far, in order. */

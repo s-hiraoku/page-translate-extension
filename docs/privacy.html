@@ -34,18 +34,19 @@
       <li><strong>ページ情報：</strong>利用者が翻訳を開始したとき、ページの文章、ページタイトル、文章の位置情報を翻訳対象の判定と表示に使います。ページのURLはサイドパネルに表示しますが、APIリクエストの本文には含めません。</li>
       <li><strong>選択範囲翻訳：</strong>利用者がページ上で選んだ文章を、DeepLで翻訳して選んだ場所のそばに表示するために使います。ページ全体の翻訳とは別に使え、Jevには送りません。同じ文章をもう一度選んだときのために、翻訳結果をサイドパネルのメモリ上に一時的に（最新の50件まで）保持しますが、ディスクには保存せず、パネルを閉じると失われます。「選択したら自動で翻訳」をオンにした場合は、パネルを閉じていても、ページで選んだ文章を同じ方法でDeepLへ送って翻訳します（設定と右クリックメニューで切り替えられ、初期値はオフです）。このときの翻訳結果は、拡張機能のバックグラウンド処理のメモリ上に一時的に（最新の50件まで）保持し、ディスクには保存しません。</li>
       <li><strong>英作文チェックの入力：</strong>利用者が英作文に入力した英文と日本語を、訳し戻し、お手本の英訳、日本語からの英訳、DeepL Writeによる添削に使います。文脈として使う設定のときは、開いているページのタイトルと本文も使います。</li>
-      <li><strong>APIキー：</strong>利用者が設定画面に入力したTypeSafe JevとDeepLのAPIキーを、それぞれのサービスへの認証に使います。</li>
+      <li><strong>APIキー：</strong>利用者が設定画面に入力したTypeSafe Jev、DeepL、Claude（Anthropic）のAPIキーを、それぞれのサービスへの認証に使います。</li>
       <li><strong>設定：</strong>翻訳先言語、表示モード、DeepLの接続先、Jevを使うかどうか、英作文チェックの設定、データ送信への同意を拡張機能内に保存します。</li>
       <li><strong>翻訳結果：</strong>サイドパネル表示と、利用者が選んだ場合のページ内表示に使います。あわせて、同じページを開き直したときに再利用するため、翻訳したページの結果を利用者の端末に一時保存します（下記「保存と削除」）。</li>
     </ul>
 
     <h2>送信先と共有</h2>
-    <p>翻訳を開始すると、抽出した候補文章、文章の位置情報、ページタイトル、翻訳先言語がTypeSafe JevへHTTPSで送信されます。Jevが翻訳対象に選んだ文章だけがDeepLへHTTPSで送信されます。設定でJevを使わない場合は、Jevへは送信せず、抽出した候補文章をDeepLへ送信します。選択範囲翻訳を使うと、選んだ文章がDeepLへHTTPSで送信されます。英作文チェックを使うと、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLへHTTPSで送信されます。APIキーは各サービスへの認証情報として各サービスに直接送信されます。</p>
+    <p>翻訳を開始すると、抽出した候補文章、文章の位置情報、ページタイトル、翻訳先言語がTypeSafe JevへHTTPSで送信されます。Jevが翻訳対象に選んだ文章だけがDeepLへHTTPSで送信されます。設定でJevを使わない場合は、Jevへは送信せず、抽出した候補文章をDeepLへ送信します。翻訳サービスが「Claude」の場合は、DeepLの代わりに、翻訳する文章とページタイトルがClaude（Anthropic、api.anthropic.com）へHTTPSで送信されます。選択範囲翻訳を使うと、選んだ文章が、選んでいる翻訳サービス（DeepLまたはClaude）へHTTPSで送信されます。英作文チェックを使うと、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLへHTTPSで送信されます。APIキーは各サービスへの認証情報として各サービスに直接送信されます。</p>
     <p>翻訳サービスが「Chrome内蔵」（新しくインストールしたときの初期設定）の場合、翻訳はChromeに内蔵の機能で、この端末の中で行われ、文章はDeepLへ送信しません。「Jevを使わない」と組み合わせた場合、ページの文章はどこにも送信しません。</p>
-    <p>Page Translateの開発者が運営する中継サーバーはありません。開発者はページ文章、英作文チェックの入力、APIキー、翻訳結果を受信・保存せず、広告、分析、プロファイリングにも利用しません。TypeSafe JevおよびDeepLによる情報の処理は、それぞれの利用条件とプライバシーポリシーに従います。</p>
+    <p>Page Translateの開発者が運営する中継サーバーはありません。開発者はページ文章、英作文チェックの入力、APIキー、翻訳結果を受信・保存せず、広告、分析、プロファイリングにも利用しません。TypeSafe Jev、DeepL、Anthropicによる情報の処理は、それぞれの利用条件とプライバシーポリシーに従います。</p>
     <ul>
       <li><a href="https://typesafe.ai/legal/privacy-policy">TypeSafe AI プライバシーポリシー</a></li>
       <li><a href="https://www.deepl.com/en/privacy">DeepL プライバシーポリシー</a></li>
+      <li><a href="https://www.anthropic.com/legal/privacy">Anthropic プライバシーポリシー</a></li>
     </ul>
 
     <h2>保存と削除</h2>
@@ -78,18 +79,19 @@
       <li><strong>Page information:</strong> When you start a translation, the extension uses page text, the page title, and text-location details to select and display translations. The page URL is shown in the side panel but is not included in API request bodies.</li>
       <li><strong>Selection translation:</strong> Text you select on a page is translated by DeepL and shown in a tooltip next to the selection. It works without translating the whole page, and nothing is sent to Jev. So that selecting the same text again costs nothing, the translation is kept briefly in the side panel's memory (the latest 50) and is never written to disk; it is lost when the panel closes. If you turn on “Translate as I select” (in Settings or the page's context menu; off by default), text you select is sent to DeepL in the same way even while the panel is closed. Those translations are kept briefly in the extension's background memory (the latest 50) and are never written to disk.</li>
       <li><strong>Writing check input:</strong> English and Japanese text you enter in the writing check is used for back-translation, a model translation, and DeepL Write corrections. If you choose to use the open page as context, its title and main text are used too.</li>
-      <li><strong>API keys:</strong> TypeSafe Jev and DeepL keys that you enter are used to authenticate requests to those services.</li>
+      <li><strong>API keys:</strong> TypeSafe Jev, DeepL and Claude (Anthropic) keys that you enter are used to authenticate requests to those services.</li>
       <li><strong>Settings:</strong> The target language, display mode, DeepL server choice, whether Jev is used, writing check options, and your data-sharing consent are stored by the extension.</li>
       <li><strong>Translations:</strong> Results are used in the side panel and, if you choose, on the page itself. So that a page you open again can reuse them, translated results are also kept temporarily on your device (see “Storage and deletion”).</li>
     </ul>
 
     <h2>Recipients and sharing</h2>
-    <p>When you start a translation, candidate page text, text-location details, the page title, and the target language are sent to TypeSafe Jev over HTTPS. Only text Jev selects for translation is sent to DeepL over HTTPS. If you turn Jev off in Settings, nothing is sent to Jev and the extracted candidate text is sent to DeepL. When you use selection translation, the text you select is sent to DeepL over HTTPS. When you use the writing check, the English and Japanese text you enter, and the page title and main text if you use the page as context, are sent to DeepL over HTTPS. API keys are sent directly to each service for authentication.</p>
+    <p>When you start a translation, candidate page text, text-location details, the page title, and the target language are sent to TypeSafe Jev over HTTPS. Only text Jev selects for translation is sent to DeepL over HTTPS. If you turn Jev off in Settings, nothing is sent to Jev and the extracted candidate text is sent to DeepL. When the translation service is “Claude”, the text to translate and the page title are sent to Claude (Anthropic, api.anthropic.com) over HTTPS instead of DeepL. When you use selection translation, the text you select is sent over HTTPS to the translation service you chose (DeepL or Claude). When you use the writing check, the English and Japanese text you enter, and the page title and main text if you use the page as context, are sent to DeepL over HTTPS. API keys are sent directly to each service for authentication.</p>
     <p>When the translation service is “Chrome built-in” (the default for new installs), translation is done by Chrome’s built-in translator on your device and no text is sent to DeepL. Combined with “Don’t use Jev”, page text is not sent anywhere.</p>
-    <p>Page Translate has no developer-operated relay server. The developer does not receive or store page text, writing check input, API keys, or translations, and does not use them for advertising, analytics, or profiling. TypeSafe Jev and DeepL process information under their respective terms and privacy policies.</p>
+    <p>Page Translate has no developer-operated relay server. The developer does not receive or store page text, writing check input, API keys, or translations, and does not use them for advertising, analytics, or profiling. TypeSafe Jev, DeepL and Anthropic process information under their respective terms and privacy policies.</p>
     <ul>
       <li><a href="https://typesafe.ai/legal/privacy-policy">TypeSafe AI Privacy Policy</a></li>
       <li><a href="https://www.deepl.com/en/privacy">DeepL Privacy Policy</a></li>
+      <li><a href="https://www.anthropic.com/legal/privacy">Anthropic Privacy Policy</a></li>
     </ul>
 
     <h2>Storage and deletion</h2>

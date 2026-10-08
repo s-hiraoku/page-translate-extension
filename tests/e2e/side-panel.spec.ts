@@ -607,3 +607,31 @@ test.describe("the list with translations shown in the page", () => {
     await expect(page.locator('[data-entry-id="segment-4"]')).toBeInViewport();
   });
 });
+
+test.describe("translating with Claude", () => {
+  type Sent = Array<{ type: string; pageTitle?: string; keys?: Record<string, string> }>;
+  const sent = (page: Page) => page.evaluate(() => (window as unknown as { __sent: Sent }).__sent);
+
+  test("sends the page title along with the passages", async ({ page }) => {
+    const errors = await openPanel(page, { settings: { translationProvider: "claude" } });
+    await expect(page.locator(".steps")).toContainText("Claudeで翻訳");
+    await translate(page);
+
+    expect(await cardIds(page)).toEqual(["segment-1", "segment-2", "segment-4", "segment-5"]);
+    const request = (await sent(page)).find((message) => message.type === "TRANSLATE_SEGMENTS");
+    expect(request?.pageTitle).toBe("Designing calm interfaces");
+    expect(errors).toEqual([]);
+  });
+
+  test("points to the settings when no Claude key is registered, and saves one there", async ({ page }) => {
+    await openPanel(page, { providers: { jev: true, deepl: true, claude: false }, settings: { translationProvider: "claude" } });
+
+    await expect(page.locator(".setup-hint")).toContainText("ClaudeのAPIキーを登録");
+    await page.locator(".setup-hint").getByRole("button", { name: "設定でAPIキーを登録" }).click();
+    await page.locator("#anthropic-api-key").fill("sk-ant-test");
+    await page.getByRole("button", { name: "APIキーを保存" }).click();
+
+    const save = (await sent(page)).find((message) => message.type === "SAVE_PROVIDER_KEYS");
+    expect(save?.keys).toMatchObject({ anthropicApiKey: "sk-ant-test" });
+  });
+});

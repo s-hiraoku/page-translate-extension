@@ -82,9 +82,20 @@ describe("missingKeyMessage", () => {
   });
 
   it("with Chrome's translator, asks only for Jev's key", () => {
-    expect(missingKeyMessage({ jev: true, deepl: false }, false)).toBeNull();
-    const message = missingKeyMessage({ jev: false, deepl: false }, false)!;
+    expect(missingKeyMessage({ jev: true, deepl: false }, null)).toBeNull();
+    const message = missingKeyMessage({ jev: false, deepl: false }, null)!;
     expect(message).toContain("TypeSafe JevのAPIキーが未登録");
     expect(message).not.toContain("DeepL");
+  });
+});
+
+describe("missingKeyMessage with Claude", () => {
+  it("asks for Claude's key when Claude translates", () => {
+    expect(missingKeyMessage({ jev: true, deepl: false, claude: false }, "claude")).toContain("ClaudeのAPIキー");
+  });
+
+  it("does not ask for DeepL's key when Claude translates", () => {
+    expect(missingKeyMessage({ jev: true, deepl: false, claude: true }, "claude")).toBeNull();
+    expect(missingKeyMessage({ jev: false, deepl: false, claude: true }, "claude")).toContain("TypeSafe JevのAPIキーが未登録");
   });
 });
