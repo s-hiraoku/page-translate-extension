@@ -566,6 +566,19 @@ test.describe("the list with translations shown in the page", () => {
     await expect(toggle(page)).toHaveCount(0);
   });
 
+  test("cards lead with the source in the page, and with the translation with the source", async ({ page }) => {
+    const card = (page: Page) => page.locator('[data-entry-id="segment-2"]');
+    await openPanel(page, { settings: { displayMode: "inline" } });
+    await translate(page);
+    await toggle(page).click();
+    await expect(card(page).locator(".entry-lead")).toHaveClass(/entry-source/);
+    await expect(card(page).locator(".entry-sub")).toHaveClass(/entry-translation/);
+
+    await mode(page, "原文＋訳文").click();
+    await expect(card(page).locator(".entry-lead")).toHaveClass(/entry-translation/);
+    await expect(card(page).locator(".entry-sub")).toHaveClass(/entry-source/);
+  });
+
   test("clicking translated text on the page opens the folded list at its card", async ({ page }) => {
     await openPanel(page, { settings: { displayMode: "inline" } });
     await translate(page);
