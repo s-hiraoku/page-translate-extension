@@ -208,4 +208,45 @@ test.describe("page-click mode", () => {
     await page.keyboard.press("Escape");
     await expect.poll(async () => (await events()).at(-1)?.type).toBe("exit");
   });
+
+  test("with hover, resting on a card's text reports it, and clicks stay the page's own", async ({ page, driver, evaluateInExtension, send }) => {
+    await page.goto("/fixtures/article.html");
+    const scan = await send<ScanResult>({ type: "SCAN_PAGE" });
+    const targets = scan.segments.slice(0, 3).map((segment, index) => ({ id: segment.id, label: String(index + 1), color: "#2c5cf0" }));
+    await evaluateInExtension((tabId, list) => {
+      const holder = window as unknown as { events: unknown[]; pick: chrome.runtime.Port };
+      holder.events = [];
+      holder.pick = chrome.tabs.connect(tabId, { name: "page-pick" });
+      holder.pick.onMessage.addListener((event) => holder.events.push(event));
+      holder.pick.postMessage({ type: "targets", targets: list, zoom: 1, trigger: "hover" });
+    }, targets);
+    const events = () => driver.evaluate(() => (window as unknown as { events: PickEvent[] }).events);
+    const pointAt = async (selector: string) => {
+      const target = page.locator(selector).first();
+      await target.scrollIntoViewIfNeeded();
+      const box = (await target.boundingBox())!;
+      return { x: box.x + 10, y: box.y + box.height / 2 };
+    };
+
+    const paragraph = await pointAt("main article > p");
+    await page.mouse.move(paragraph.x, paragraph.y);
+    await expect.poll(async () => (await events()).at(-1)).toMatchObject({ type: "picked", segmentId: "segment-2" });
+
+    // Clicking untranslated text adds nothing: with hover it is added by selecting it.
+    const before = (await events()).length;
+    const footer = await pointAt("footer p");
+    await page.mouse.click(footer.x, footer.y);
+    await page.waitForTimeout(500);
+    expect((await events()).slice(before).filter((event) => event.type === "added")).toHaveLength(0);
+
+    // Passing over text without resting on it reports nothing.
+    const count = (await events()).length;
+    await page.mouse.move(paragraph.x, paragraph.y);
+    await page.mouse.move(footer.x, footer.y);
+    await page.waitForTimeout(500);
+    expect((await events()).length).toBe(count);
+
+    await page.locator("aside li a").first().click();
+    await expect.poll(() => page.url()).toMatch(/#$/);
+  });
 });

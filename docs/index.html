@@ -57,7 +57,7 @@
       <ol>
         <li><a href="#start">はじめに（3ステップ）</a></li>
         <li><a href="#page">ページを翻訳する</a></li>
-        <li><a href="#pick">原文をクリックして訳を見る</a></li>
+        <li><a href="#pick">原文を選んで訳を見る</a></li>
         <li><a href="#selection">選んだ文章だけ翻訳する</a></li>
         <li><a href="#compose">英作文をチェックする</a></li>
         <li><a href="#shortcuts">ショートカット</a></li>
@@ -92,11 +92,14 @@
     <p>同じページを数時間以内にもう一度開くと、前回の結果を再利用するので、待たずに表示され、APIも使いません（設定で保存時間の変更・オフにできます）。訳が古いと感じたら、カードの上の「再翻訳」を押してください。</p>
     <div class="note"><p>別のページへ移動したとき、またはブラウザのタブを切り替えたときは、パネルの翻訳結果は消えて最初の状態に戻ります。</p></div>
 
-    <h2 id="pick">原文をクリックして訳を見る（ページクリック）</h2>
-    <p>ページを翻訳したあとに「ページクリック」をオンにすると、ページ上の本文をクリックするだけで、対応するカードが同じ高さに現れます。</p>
+    <h2 id="pick">原文を選んで訳を見る（ページ選択）</h2>
+    <p>ページを翻訳したあとに「ページ選択」をオンにすると、ページ上の本文を選ぶだけで、対応するカードが同じ高さに現れます。選び方は、設定の「ページ選択の操作」で決めます。</p>
+    <table>
+      <tr><th>ページ選択の操作</th><th>動き</th></tr>
+      <tr><td><strong>クリック</strong>（初期値）</td><td>本文をクリックするとカードが現れます。まだ翻訳していない段落をクリックすると、新しいカードとして加わり、その場で翻訳されます。リンクを含む本文をクリックしても、ページは移動しません。</td></tr>
+      <tr><td><strong>マウスを乗せる</strong></td><td>本文にマウスを少し乗せるとカードが現れます。クリックはページにそのまま届くので、リンクも押せます。まだ翻訳していない段落は、文字を選択すると追加して翻訳します。</td></tr>
+    </table>
     <ul>
-      <li>まだ翻訳していない段落をクリックすると、その段落が新しいカードとして加わり、その場で翻訳されます。</li>
-      <li>リンクを含む本文をクリックしても、ページは移動しません。</li>
       <li>終わるには、<kbd>Esc</kbd> を押すか、もう一度ボタンを押すか、パネルを閉じます。</li>
     </ul>
 
@@ -115,7 +118,7 @@
       <tr><td>オフ</td><td>オン</td><td>パネルを開いているあいだだけ翻訳する（閉じるとボタンはオフ）</td></tr>
       <tr><td>オフ</td><td>オフ</td><td>何もしない（ショートカットか右クリックで1回だけ翻訳できる）</td></tr>
     </table>
-    <p>ページクリックがオンのあいだは、どちらも一時的に止まります（設定は変わりません）。</p>
+    <p>ページ選択がオンのあいだは、どちらも一時的に止まります（設定は変わりません）。</p>
     <ul>
       <li>翻訳には、設定の「翻訳に使うサービス」を使います（Jevは使いません）。Chrome内蔵なら、パネルを閉じていてもページの中で翻訳します。</li>
       <li>翻訳先は、パネルの「日本語へ / 英語へ」に従います。すでに翻訳先の言語の文章は、翻訳しません。</li>
@@ -140,7 +143,7 @@
     <table>
       <tr><th>操作</th><th>Windows / Linux</th><th>Mac</th></tr>
       <tr><td>このページを翻訳（パネルが閉じていれば開く）</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd></td></tr>
-      <tr><td>ページクリックのオン・オフ（未翻訳なら翻訳してからオン）</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td></tr>
+      <tr><td>ページ選択のオン・オフ（未翻訳なら翻訳してからオン）</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td></tr>
       <tr><td>選んだ文章を翻訳（ツールチップで表示）</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td></tr>
     </table>
     <p>キーを変えたいときは、設定の「ショートカットを変更」から、Chromeの <code>chrome://extensions/shortcuts</code> を開いて設定します。ほかの拡張機能と同じキーは割り当てられず、設定に「未設定」と出ます。</p>
@@ -153,6 +156,7 @@
       <tr><td>翻訳する本文の判定</td><td>「Jevを使う」（初期値）は、TypeSafe Jevが翻訳する本文を選びます。「Jevを使わない」は、ページ側のルールで除いた残りをすべて翻訳します（Jevのキーは不要）。</td></tr>
       <tr><td>DeepLの接続先</td><td>「自動」のとき、キーの末尾が <code>:fx</code> なら無料用、それ以外は有料用に接続します。合わなければ手動で選べます。</td></tr>
       <tr><td>選択したら自動で翻訳</td><td>サイドパネルを閉じていても、文章を選ぶたびに自動で翻訳します（初期値はオフ）。</td></tr>
+      <tr><td>ページ選択の操作</td><td>「ページ選択」で本文を選ぶ方法を、「クリック」（初期値）か「マウスを乗せる」から選びます。</td></tr>
       <tr><td>翻訳のキャッシュ</td><td>翻訳したページの結果を、この端末の拡張機能の中だけに、1・3・24時間（初期値3時間）保存します。「キャッシュを削除」で消せます。</td></tr>
       <tr><td>表示テーマ</td><td>サイドパネルの配色を、システム・ライト・ダークから選びます。</td></tr>
       <tr><td>英作文の設定</td><td>英語の種類（米国・英国）、DeepL Writeの文体、「日本語を英訳するとき、開いているページを文脈として使う」（初期値はオフ）。</td></tr>
@@ -169,7 +173,7 @@
     </details>
     <details>
       <summary>日本語のページ、または一部の文章が翻訳されない</summary>
-      <p>翻訳先がすでに日本語のとき、日本語の文章は翻訳しません。また、本文以外（ナビゲーション、広告、メタ情報など）と、翻訳しなくてよいと判定された文章は、一覧に出ません。パネルの「表示していません」の件数で、除いた数が分かります。除かれた文章も、ページクリックで、クリックすれば翻訳できます。</p>
+      <p>翻訳先がすでに日本語のとき、日本語の文章は翻訳しません。また、本文以外（ナビゲーション、広告、メタ情報など）と、翻訳しなくてよいと判定された文章は、一覧に出ません。パネルの「表示していません」の件数で、除いた数が分かります。除かれた文章も、ページ選択で、クリック（「マウスを乗せる」のときは文字の選択）で翻訳できます。</p>
     </details>
     <details>
       <summary>ショートカットが効かない</summary>
@@ -232,8 +236,8 @@
     </ul>
     <p>Switch the target with “To Japanese / To English” at the top of the panel. Opening the same page again within a few hours reuses the earlier result; press “Retranslate” above the cards to translate from scratch. When you go to another page or switch browser tabs, the panel's results are cleared and it returns to its start screen.</p>
 
-    <h2>Click the page to see its translation (page click)</h2>
-    <p>After translating, turn on “Page click”. Clicking body text on the page shows the matching card at the same height. Clicking text that was not translated adds it as a new card and translates it. Links inside body text do not navigate while this is on. Press <kbd>Esc</kbd>, press the button again or close the panel to stop.</p>
+    <h2>Pick text on the page to see its translation (page select)</h2>
+    <p>After translating, turn on “ページ選択” (Page select). Picking body text on the page shows the matching card at the same height. The “ページ選択の操作” setting decides how you pick: with “クリック” (<strong>Click</strong>, the default), clicking body text shows its card, clicking text that was not translated adds it as a new card and translates it, and links inside body text do not navigate. With “マウスを乗せる” (<strong>Hover</strong>), resting the pointer on body text shows its card, clicks reach the page as usual so links work, and text that was not translated is added by selecting it. Press <kbd>Esc</kbd>, press the button again or close the panel to stop.</p>
 
     <h2>Translate only what you select (selection translation)</h2>
     <p>Translate just the passage you are stuck on, in a tooltip next to the selection (copyable; <kbd>Esc</kbd> or a click elsewhere closes it). It works with the side panel closed.</p>
@@ -251,7 +255,7 @@
     <table>
       <tr><th>Action</th><th>Windows / Linux</th><th>Mac</th></tr>
       <tr><td>Translate this page (opens the panel if closed)</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd></td></tr>
-      <tr><td>Toggle page click (translates first if needed)</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td></tr>
+      <tr><td>Toggle page select (translates first if needed)</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td></tr>
       <tr><td>Translate the selected text (tooltip)</td><td data-l="Windows / Linux"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td data-l="Mac"><kbd>Control</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td></tr>
     </table>
     <p>Change them at <code>chrome://extensions/shortcuts</code>. A key another extension already uses is not assigned and shows as “Not set”.</p>

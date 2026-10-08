@@ -77,7 +77,7 @@ type PickMode = "off" | "page-click" | "selection";
 
 const shortcutRows: Array<{ command: PanelCommand; label: string; short: string }> = [
   { command: "translate-page", label: "このページを翻訳", short: "翻訳" },
-  { command: "toggle-page-pick", label: "ページクリックのオン・オフ", short: "ページクリック" },
+  { command: "toggle-page-pick", label: "ページ選択のオン・オフ", short: "ページ選択" },
   { command: "translate-selection", label: "選択した文章を翻訳", short: "選択翻訳" },
 ];
 
@@ -116,7 +116,7 @@ export function SidePanel() {
   /** Candidates the page scan or the local language check dropped before Jev saw them. */
   const [droppedCount, setDroppedCount] = useState(0);
   /**
-   * Page-click mode (clicking translated text on the page selects its card) or selection
+   * Page select mode (clicking or resting on translated text on the page selects its card) or selection
    * translation (selecting text shows its translation in a tooltip). Both react to selecting
    * text, so turning one on turns the other off in the same step.
    */
@@ -306,7 +306,7 @@ export function SidePanel() {
   const applied = effectiveSettings(settings, { jevKey: providerStatus ? providerStatus.providers.jev : null, chromeTranslator: chromeSupported });
   /** Bumped by every new scan so late results from the previous list are dropped. */
   const generationRef = useRef(0);
-  // A finished scan (which also means data-use consent was given) enables page-click mode,
+  // A finished scan (which also means data-use consent was given) enables page select mode,
   // even when it left no visible cards: that is when adding one by hand matters most.
   const scanned = !busy && pageUrl !== "";
 
@@ -400,7 +400,7 @@ export function SidePanel() {
     };
   }, [selectionMode]);
 
-  // While page-click mode is on, hold a port to the tab. The page reports clicks on
+  // While page select mode is on, hold a port to the tab. The page reports clicks on
   // translated text through it; closing the panel drops the port and ends the mode.
   useEffect(() => {
     if (!pagePick) return;
@@ -424,9 +424,9 @@ export function SidePanel() {
         modePorts.current.delete(held);
         if (cancelled) return;
         setPagePick(false);
-        reportDroppedPort("ページとの接続が切れたため、ページクリックを終了しました。");
+        reportDroppedPort("ページとの接続が切れたため、ページ選択を終了しました。");
       });
-      port.postMessage({ type: "targets", targets: pickable, zoom } satisfies PagePickRequest);
+      port.postMessage({ type: "targets", targets: pickable, zoom, trigger: settings.pageSelectTrigger } satisfies PagePickRequest);
     })().catch((caught: unknown) => {
       setPagePick(false);
       setError(errorMessage(caught));
@@ -437,7 +437,7 @@ export function SidePanel() {
       port?.disconnect();
     };
     // pickableKey captures every change to the targets.
-  }, [pagePick, pickableKey]);
+  }, [pagePick, pickableKey, settings.pageSelectTrigger]);
 
   /**
    * Text without a translated card was clicked or selected on the page: add a card in
@@ -577,7 +577,7 @@ export function SidePanel() {
     window.setTimeout(() => { if (generation === generationRef.current) setError(message); }, 250);
   }
 
-  /** Resolves true once the page was scanned, so page-click mode can start. */
+  /** Resolves true once the page was scanned, so page select mode can start. */
   async function startTranslation(fresh = false): Promise<boolean> {
     // Straight from the click: the first use of Chrome's translator downloads its model, which
     // Chrome allows only right after a click. The translator is kept for the rest of the run.
@@ -1103,10 +1103,10 @@ export function SidePanel() {
                 className={`pick-toggle ${pagePick ? "active" : ""}`}
                 aria-pressed={pagePick}
                 disabled={!scanned}
-                title={scanned ? withShortcut("ページ上の本文をクリックして、対応する訳文を表示します", shortcuts["toggle-page-pick"]) : "先に「このページを翻訳」を実行してください"}
+                title={scanned ? withShortcut(settings.pageSelectTrigger === "hover" ? "ページ上の本文にマウスを乗せて、対応する訳文を表示します" : "ページ上の本文をクリックして、対応する訳文を表示します", shortcuts["toggle-page-pick"]) : "先に「このページを翻訳」を実行してください"}
                 onClick={() => setPagePick((on) => !on)}
               >
-                <Icon name="pointer" />ページクリック
+                <Icon name="pointer" />ページ選択
                 {shortcuts["toggle-page-pick"] && <kbd className="button-kbd">{shortcuts["toggle-page-pick"]}</kbd>}
               </button>
               <button
@@ -1236,6 +1236,25 @@ export function SidePanel() {
             ))}
           </div>
 
+          <SettingHeading id="page-select-label" label="ページ選択の操作" help={help}>
+            <b>クリック</b>：「ページ選択」がオンのとき、本文をクリックすると対応する訳文のカードを表示します。翻訳されていない箇所も、クリックで追加して翻訳できます。<br />
+            <b>マウスを乗せる</b>：本文にマウスを少し乗せるだけでカードを表示します。クリックはページにそのまま届くので、リンクも押せます。翻訳されていない箇所は、文字を選択して追加します。
+          </SettingHeading>
+          <div className="mode-switch" role="radiogroup" aria-labelledby="page-select-label">
+            {([["click", "クリック"], ["hover", "マウスを乗せる"]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={settings.pageSelectTrigger === value}
+                className={settings.pageSelectTrigger === value ? "active" : ""}
+                onClick={() => void persistSettings({ ...settingsRef.current, pageSelectTrigger: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <SettingHeading id="cache-label" label="翻訳のキャッシュ" help={help}>
             <b>保存する</b>：翻訳したページの結果を、この端末の拡張機能の中だけに保存し、同じページを開いたときに再利用します。ページの本文が変わっていた部分は翻訳し直します。外部へは送信しません。<br />
             <b>保存しない</b>：翻訳結果を保存せず、保存済みの内容も削除します。
@@ -1353,13 +1372,15 @@ export function SidePanel() {
                 <p className="hidden-note folded-note"><Icon name="inline" />訳文はページ内に表示しています。原文と並べて見たいときは「一覧を表示」を押してください。</p>
               )}
               {pagePick && (
-                <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />本文をクリックで訳文を表示。翻訳されていない箇所はクリックか文字の選択で追加して翻訳します。Escで終了</p>
+                <p className="pick-note" role="status"><span className="live-dot" aria-hidden="true" />{settings.pageSelectTrigger === "hover"
+                  ? "本文にマウスを乗せると訳文を表示。翻訳されていない箇所は文字の選択で追加して翻訳します。Escで終了"
+                  : "本文をクリックで訳文を表示。翻訳されていない箇所はクリックか文字の選択で追加して翻訳します。Escで終了"}</p>
               )}
               {hiddenCount > 0 && !folded && (
                 <p className="hidden-note"><Icon name="eyeOff" />本文外・翻訳対象外の{hiddenCount}件は表示していません</p>
               )}
               {visibleEntries.length === 0 && !pagePick && (
-                <p className="hidden-note">表示できる翻訳箇所はありません。「ページクリック」で本文を選ぶと追加できます。</p>
+                <p className="hidden-note">表示できる翻訳箇所はありません。「ページ選択」で本文を選ぶと追加できます。</p>
               )}
               <ol className="entry-list" id="entry-list" hidden={folded}>
                 {visibleEntries.map((entry, index) => (

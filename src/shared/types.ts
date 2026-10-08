@@ -41,7 +41,7 @@ export interface CandidateSegment {
   /** Share of the text that is link text (0–1). */
   linkDensity: number;
   isArticleTitle: boolean;
-  /** Added by the reader in page-click mode rather than by the page scan. */
+  /** Added by the reader in page select mode rather than by the page scan. */
   manual?: boolean;
   /** A selected part of the element's text; never written back into the page. */
   partial?: boolean;
@@ -100,7 +100,11 @@ export interface ExtensionSettings {
    * the network). Installs from before it existed keep DeepL.
    */
   translationProvider: TranslationProvider;
+  /** How page select mode picks a card: clicking the text, or resting the pointer on it. */
+  pageSelectTrigger: PageSelectTrigger;
 }
+
+export type PageSelectTrigger = "click" | "hover";
 
 export type TranslationProvider = "deepl" | "chrome";
 
@@ -122,6 +126,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   cacheTtlHours: 3,
   selectionAutoTranslate: false,
   translationProvider: "chrome",
+  pageSelectTrigger: "click",
 };
 
 export type ExtensionMessage =
@@ -173,7 +178,7 @@ export function isPanelCommand(value: unknown): value is PanelCommand {
   return (PANEL_COMMANDS as readonly unknown[]).includes(value);
 }
 
-/** Port name for page-click mode: the side panel connects to the tab while the mode is on. */
+/** Port name for page select mode: the side panel connects to the tab while the mode is on. */
 export const PAGE_PICK_PORT = "page-pick";
 /** Held open by the side panel while it shows a connector in a tab; closing the panel drops it. */
 export const PANEL_PRESENCE_PORT = "panel-presence";
@@ -185,7 +190,7 @@ export interface PagePickTarget {
 }
 
 /** Side panel → page over the page-pick port. */
-export type PagePickRequest = { type: "targets"; targets: PagePickTarget[]; zoom: number };
+export type PagePickRequest = { type: "targets"; targets: PagePickTarget[]; zoom: number; trigger?: PageSelectTrigger };
 
 /** Page → side panel over the page-pick port. */
 export type PagePickEvent =

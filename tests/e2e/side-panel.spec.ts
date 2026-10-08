@@ -119,6 +119,20 @@ test.describe("page-click mode", () => {
     await expect(page.locator('[data-entry-id="manual-1"] .entry-translation')).toHaveText("訳:manual-1");
   });
 
+  test("tells the page to pick by click, or by hover once the setting says so, and explains it", async ({ page }) => {
+    const sent = () => page.evaluate(() => (window as unknown as { __pickTargets?: { trigger?: string } }).__pickTargets?.trigger);
+    await openPanel(page);
+    await translate(page);
+    await page.locator(PAGE_CLICK).click();
+    await expect.poll(sent).toBe("click");
+    await expect(page.locator(".pick-note")).toContainText("本文をクリックで訳文を表示");
+
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await page.getByRole("radiogroup", { name: "ページ選択の操作" }).getByRole("radio", { name: "マウスを乗せる" }).click();
+    await expect(page.getByRole("radio", { name: "マウスを乗せる" })).toHaveAttribute("aria-checked", "true");
+    await expect.poll(sent).toBe("hover");
+  });
+
   test("drops a slow result from an earlier scan", async ({ page }) => {
     // The second scan must reach Jev and DeepL again (its verdicts differ), so the cache stays out of it.
     await openPanel(page, { settings: { cacheEnabled: false } });
