@@ -18,6 +18,6 @@ Paste `store/description-en.txt` into the Dashboard's Description field as is (p
 
 - Icon: `public/icons/icon128.png`
 - English promo tile: `store/images/store-tile.en.png` (440×280)
-- Screenshots: `store/images/screenshot-en-*.png` (at least 1280×800; final screenshots must be captured from the running extension)
+- Screenshots: `store/screenshots/screenshot-1.png` to `-3.png` (1280×800, captured from the running extension)
 - Optional marquee image: not created
 - Promo video: none

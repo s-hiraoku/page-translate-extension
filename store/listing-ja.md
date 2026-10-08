@@ -18,6 +18,6 @@
 
 - アイコン：`public/icons/icon128.png`
 - 日本語プロモーションタイル：`store/images/store-tile.ja.png`（440×280）
-- スクリーンショット：`store/images/screenshot-ja-*.png`（1280×800以上。実機での最終撮影が必要）
+- スクリーンショット：`store/screenshots/screenshot-1.png`〜`-3.png`（1280×800、実機で撮影）
 - 任意のマーキー画像：未作成
 - プロモーション動画：なし
