@@ -1,0 +1,45 @@
+Read English and Japanese web pages side by side with their translation. Page Translate translates only the main text of a page, and links each translation to the place it came from.
+
+No API key needed: on desktop Chrome 138 or later, Page Translate uses Chrome's built-in translator, and the text is translated on your device.
+
+■ What you can do
+
+• Translate a page
+Navigation, ads and menus are left out; only the body text is translated. Choose how to read it:
+ - Original + translation: the page stays as it is, and translations appear as cards in the side panel. Pick a card to jump to its source, marked with a connector line.
+ - On the page: translations replace the text on the page. You can switch back to the original at any time.
+
+• Page select
+Click a paragraph on the page to bring up its translation card. Paragraphs that were not translated yet can be added with a click. In Settings you can switch to "hover" so cards appear when you point at the text, and links stay clickable.
+
+• Translate a selection
+Translate just the text you select, in a small tooltip next to it. It also works with the side panel closed: by shortcut, from the right-click menu, or with "Translate as I select".
+
+• Writing check (DeepL key required)
+See how your English reads by translating it back into Japanese, or write in Japanese and get an English version to check.
+
+• Translation cache
+Reopen a page within a few hours and the saved translation is reused. Passages that changed are translated again.
+
+■ Keyboard shortcuts (Mac: Control+Shift)
+
+• Alt+Shift+Y: translate this page
+• Alt+Shift+K: turn page select on or off
+• Alt+Shift+S: translate the selected text
+You can change them at chrome://extensions/shortcuts.
+
+■ Translation services
+
+• Chrome built-in (default): no API key, translated on your device. Requires desktop Chrome 138 or later; on older versions, DeepL is used.
+• DeepL: register your own DeepL API key in Settings (a free-plan key works).
+• TypeSafe Jev (optional): register a Jev key to have Jev choose which text on the page to translate.
+
+API keys are kept only in memory for the current Chrome session. They are cleared when Chrome closes or the extension is updated or reloaded. There are no shared keys and no relay server.
+
+■ Privacy
+
+With Chrome's built-in translator, page text is not sent anywhere. Only when you use DeepL or Jev is text sent directly to that service, and the extension asks for your consent the first time. The developer of Page Translate does not receive or store page text, API keys or translations, and collects no analytics.
+
+User guide: https://s-hiraoku.github.io/page-translate-extension/#en
+Privacy policy: https://s-hiraoku.github.io/page-translate-extension/privacy.html
+Support: https://github.com/s-hiraoku/page-translate-extension/issues

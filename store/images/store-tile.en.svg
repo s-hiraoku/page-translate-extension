@@ -6,7 +6,7 @@
   </defs>
   <rect width="440" height="280" rx="18" fill="url(#bg)"/>
   <ellipse cx="326" cy="140" rx="160" ry="150" fill="url(#glow)"/>
-  <g transform="translate(275 62) scale(.74)" filter="url(#shadow)">
+  <g transform="translate(304 76) scale(.64)" filter="url(#shadow)">
     <rect x="12" y="0" width="118" height="148" rx="19" fill="#17233b"/>
     <path d="M93 0v27q0 10 10 10h27" fill="#263b65"/>
     <rect x="58" y="31" width="118" height="148" rx="19" fill="#3972ec"/>
@@ -16,9 +16,10 @@
     <path d="M151 110c-9 26-43 37-68 23l-12-7" fill="none" stroke="#dce8ff" stroke-width="10" stroke-linecap="round"/>
     <path d="m74 138-18-14 21-8" fill="#dce8ff"/>
   </g>
-  <text x="30" y="69" fill="#a9c3ff" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="2">PAGE TRANSLATE</text>
-  <text x="30" y="120" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="25" font-weight="700">Read across languages.</text>
-  <text x="30" y="154" fill="#e2e9f7" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="14">Translate pages without losing context.</text>
-  <rect x="30" y="191" width="112" height="29" rx="14.5" fill="#ffffff" fill-opacity=".1" stroke="#ffffff" stroke-opacity=".18"/>
-  <text x="48" y="210" fill="#d9e4fb" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="12" font-weight="600">Jev   ×   DeepL</text>
+  <text x="30" y="62" fill="#a9c3ff" font-family="Inter,'Noto Sans JP',-apple-system,BlinkMacSystemFont,sans-serif" font-size="12" font-weight="700" letter-spacing="2">PAGE TRANSLATE</text>
+  <text x="30" y="104" fill="#fff" font-family="Inter,'Noto Sans JP',-apple-system,BlinkMacSystemFont,sans-serif" font-size="25" font-weight="700">Translate pages,</text>
+  <text x="30" y="136" fill="#fff" font-family="Inter,'Noto Sans JP',-apple-system,BlinkMacSystemFont,sans-serif" font-size="25" font-weight="700">linked to the source.</text>
+  <text x="30" y="178" fill="#e2e9f7" font-family="Inter,'Noto Sans JP',-apple-system,BlinkMacSystemFont,sans-serif" font-size="13.5">English ⇄ Japanese, side by side.</text>
+  <rect x="30" y="203" width="150" height="29" rx="14.5" fill="#ffffff" fill-opacity=".1" stroke="#ffffff" stroke-opacity=".18"/>
+  <text x="105.0" y="222" text-anchor="middle" fill="#d9e4fb" font-family="Inter,'Noto Sans JP',-apple-system,BlinkMacSystemFont,sans-serif" font-size="12" font-weight="600">No API key needed</text>
 </svg>

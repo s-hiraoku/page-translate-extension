@@ -3,7 +3,7 @@
 ## Product details
 
 - Name: Page Translate
-- Short description: Translate English and Japanese pages beside their source. No API key needed with Chrome's built-in translator; DeepL and Jev supported.
+- Short description (manifest `description`, shown as the package summary): Translate English and Japanese pages, linked to their source. No API key needed with Chrome's built-in translator.
 - Category: Productivity
 - Language: English
 - Support URL: https://github.com/s-hiraoku/page-translate-extension/issues
@@ -12,44 +12,7 @@
 
 ## Detailed description
 
-Translate English and Japanese text without leaving the page you are reading.
-
-Page Translate extracts the body text of the current page, translates it, and shows each result in the Chrome side panel with its original page location. By default it uses Chrome's built-in translator, so it works without an API key and the text stays on your device. Register a DeepL API key to translate with DeepL, and a TypeSafe Jev key to have Jev choose what to translate.
-
-### Features
-
-- Translate page text from English to Japanese or Japanese to English
-- Chrome's built-in translator by default: no API key, text translated on your device (desktop Chrome 138+); switch to DeepL any time
-- Keep the original page text and review translations beside their source locations
-- Jump from a result to its source and see a temporary connector
-- Show translations directly on the page and restore the original text
-- Let TypeSafe Jev classify candidate text before translation
-- Writing check: see what your own English conveys, compare it with DeepL's translation of what you meant, and get DeepL Write corrections (paid-plan keys)
-- Japanese to English: turn what you want to say into English, and translate it back to confirm it says what you meant
-- Translation cache: reopen a page within a few hours and its saved translation is reused (changed passages are translated again)
-- DeepL server detected from your key (free or paid plan can also be chosen manually)
-- Selection translation: translate just the text you select on a page, shown in a tooltip right next to it (it also works with the side panel closed: by shortcut, right-click, or “Translate as I select”)
-- Keyboard shortcuts: Alt+Shift+Y translates the page, Alt+Shift+K toggles page-click mode, Alt+Shift+S translates the selected text (Control+Shift on Mac; customizable)
-
-### API keys
-
-No API key is needed with Chrome's built-in translator (the default). To use DeepL or TypeSafe Jev, provide your own API keys. Provider quotas and charges depend on your provider accounts. Keys are held only in memory for the current Chrome session and are cleared when Chrome restarts or the extension is reloaded or updated. Page Translate includes no shared API keys or relay server.
-
-### Data handling
-
-With Chrome's built-in translator (the default), text is translated on your device and not sent anywhere. When DeepL or Jev is used: when you start a translation, candidate page text and the page title are sent to TypeSafe Jev. Only text selected by Jev is sent to DeepL. API keys are sent directly to each provider for authentication. The recipients are TypeSafe Jev and DeepL; the Page Translate developer does not receive or store page text, API keys, or translations. Before processing begins, the extension explains what is sent and where, and waits for your consent.
-
-Check the terms of TypeSafe Jev and your chosen DeepL API plan before sending text containing personal or confidential information.
-
-### Permissions
-
-- Access to all websites: used to extract text from the page you choose to translate and apply the display mode you select.
-- `contextMenus`: adds “Translate selection” and “Translate as I select” to the page's right-click menu.
-- `sidePanel`: displays translations and settings in the Chrome side panel.
-- `storage`: saves display settings and data-use consent, and holds API keys only for the Chrome session. It also keeps translated pages on this device for the time you choose (3 hours by default) so a page you reopen is not translated again; nothing is sent anywhere, and it can be turned off or deleted in Settings.
-- Connections to TypeSafe Jev and DeepL: used to classify candidate text and translate selected text.
-
-See the user guide, the support page and the privacy policy for more information.
+Paste `store/description-en.txt` into the Dashboard's Description field as is (plain text).
 
 ## Images
 
