@@ -1014,6 +1014,7 @@ export function SidePanel() {
   }
 
   const folded = listFolded && settings.displayMode === "inline";
+  const sourceLang = settings.targetLanguage === "JA" ? "en" : "ja";
   const progress = visibleEntries.length > 0 ? translatedCount / visibleEntries.length : 0;
 
   return (
@@ -1373,12 +1374,17 @@ export function SidePanel() {
                             <span className="badge review" title="Jevの判定があいまいだったため、自動で翻訳しました">要確認</span>
                           )}
                         </span>
-                        {entry.state === "translated" ? (
-                          <span className="entry-translation">{entry.translatedText}</span>
-                        ) : (
+                        {entry.state !== "translated" ? (<>
                           <span className="entry-review">{entry.reason ?? "判定を確認してください。"}</span>
-                        )}
-                        <span className="entry-source" lang={settings.targetLanguage === "JA" ? "en" : "ja"}>{entry.sourceText}</span>
+                          <span className="entry-source entry-sub" lang={sourceLang}>{entry.sourceText}</span>
+                        </>) : settings.displayMode === "inline" ? (<>
+                          {/* The page shows the translation already, so the card leads with the original. */}
+                          <span className="entry-source entry-lead" lang={sourceLang}>{entry.sourceText}</span>
+                          <span className="entry-translation entry-sub">{entry.translatedText}</span>
+                        </>) : (<>
+                          <span className="entry-translation entry-lead">{entry.translatedText}</span>
+                          <span className="entry-source entry-sub" lang={sourceLang}>{entry.sourceText}</span>
+                        </>)}
                       </button>
                       {entry.state === "review" && (
                         <button className="review-action" type="button" onClick={() => void translateOne(entry)}>
