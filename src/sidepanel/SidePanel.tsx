@@ -22,7 +22,8 @@ import type {
   ThemePreference,
   TranslationEntry,
 } from "../shared/types";
-import { GLOSSARY_KEY, GLOSSARY_MAX_CHARS, PROGRAMMING_GLOSSARY, applyGlossaryEntries, mergeGlossary, parseGlossary, type GlossaryEntry } from "../shared/glossary";
+import { GLOSSARY_KEY, GLOSSARY_MAX_CHARS } from "../shared/glossary";
+import { applyDictionaryChanges, describeDictionary, parseDictionary, type DictionaryChanges, type DictionaryTurn } from "../shared/dictionary";
 import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand, type ClaudeModel } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
@@ -118,11 +119,22 @@ export function SidePanel() {
   /** The glossary as the reader is editing it, and as last saved. */
   const [glossary, setGlossary] = useState("");
   const [savedGlossary, setSavedGlossary] = useState("");
+  const savedGlossarySummary = useMemo(() => describeDictionary(parseDictionary(savedGlossary)), [savedGlossary]);
   const [glossaryNote, setGlossaryNote] = useState("");
-  /** What the reader wants the glossary for, and whether Claude also picks terms from the open page. */
+  /** What the reader wants the dictionary for, and whether Claude builds it from the open page. */
   const [glossaryRequest, setGlossaryRequest] = useState("");
   const [glossaryUsePage, setGlossaryUsePage] = useState(false);
   const [glossaryBusy, setGlossaryBusy] = useState(false);
+  /** The consultation before building: empty until it starts. The page is read once, when it starts. */
+  const [dictionaryTalk, setDictionaryTalk] = useState<DictionaryTurn[]>([]);
+  const [dictionaryReply, setDictionaryReply] = useState("");
+  const [dictionaryPage, setDictionaryPage] = useState<{ title: string; text: string } | null>(null);
+  /** The talk scrolls to its newest message as it grows. */
+  const talkList = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    const list = talkList.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [dictionaryTalk, glossaryBusy]);
   /** The card whose translation the reader is fixing through the glossary. */
   const [fixingId, setFixingId] = useState<string | null>(null);
   const [fixFeedback, setFixFeedback] = useState("");
@@ -1036,41 +1048,97 @@ export function SidePanel() {
   /** Saves the glossary text; false when it is too long to keep. */
   async function saveGlossary(text = glossary, note?: string): Promise<boolean> {
     if (text.length > GLOSSARY_MAX_CHARS) {
-      setGlossaryNote(`用語集が長すぎます（${GLOSSARY_MAX_CHARS.toLocaleString()}文字まで）。`);
+      setGlossaryNote(`辞書が長すぎます（${GLOSSARY_MAX_CHARS.toLocaleString()}文字まで）。`);
       return false;
     }
     await chrome.storage.local.set({ [GLOSSARY_KEY]: text });
+    await forgetClaudeTranslations();
+    setGlossary(text);
+    setSavedGlossary(text);
+    setGlossaryNote(note ?? `辞書を保存しました（${describeDictionary(parseDictionary(text)) || "空"}）。`);
+    return true;
+  }
+
+  /** Claude's cached pages and selections were translated with the old dictionary (or without it). */
+  async function forgetClaudeTranslations(): Promise<void> {
     glossaryRevision.current += 1;
-    // Claude's cached pages and selections were translated with the old glossary.
     for (const key of [...selectionCache.current.keys()]) if (key.startsWith("claude\n")) selectionCache.current.delete(key);
     const store = await loadCacheStore();
     await chrome.storage.local.set({ [CACHE_KEY]: withoutProvider(store, "claude") });
     void refreshCacheInfo();
-    setGlossary(text);
-    setSavedGlossary(text);
-    setGlossaryNote(note ?? `${parseGlossary(text).length}語を保存しました。`);
-    return true;
   }
 
-  /** Claude builds entries from the reader's wishes (and the open page's terms) and they are saved. */
-  async function buildGlossary(): Promise<void> {
+  async function changeUseGlossary(useGlossary: boolean): Promise<void> {
+    await persistSettings({ ...settingsRef.current, useGlossary });
+    await forgetClaudeTranslations();
+  }
+
+  /** The page and the talk as the service worker takes them. */
+  function dictionaryMessage(conversation: DictionaryTurn[], page: { title: string; text: string } | null) {
+    return { conversation, ...(page ? { pageTitle: page.title, pageText: page.text } : {}) };
+  }
+
+  /** Claude answers the talk so far; the reader's message stays in the talk even when the answer fails. */
+  async function consult(conversation: DictionaryTurn[], page: { title: string; text: string } | null): Promise<void> {
+    setDictionaryTalk(conversation);
+    const result = await sendMessage<{ message: string }>({ type: "CONSULT_DICTIONARY", ...dictionaryMessage(conversation, page) });
+    setDictionaryTalk([...conversation, { role: "claude", text: result.message }]);
+  }
+
+  /** "辞書を作る" starts a consultation: Claude reads the page, says what it understood and proposes a dictionary. */
+  async function startDictionaryTalk(): Promise<void> {
     if (!(await ensureConsent())) return;
     setGlossaryBusy(true);
     setGlossaryNote("");
     try {
       const page = glossaryUsePage ? await sendMessage<{ title: string; text: string }>({ type: "PAGE_TEXT" }) : null;
-      const result = await sendMessage<{ entries: GlossaryEntry[] }>({
-        type: "BUILD_GLOSSARY",
-        request: glossaryRequest,
-        ...(page ? { pageTitle: page.title, pageText: page.text } : {}),
-      });
-      const label = glossaryRequest.replace(/\s+/g, " ").trim().slice(0, 40) || "開いているページから";
-      const { text, changed } = applyGlossaryEntries(glossary, result.entries, false, `AIが作成：${label}`);
+      setDictionaryPage(page);
+      await consult([{ role: "reader", text: glossaryRequest.trim() || "開いているページから辞書を作りたい" }], page);
+    } catch (caught) {
+      setGlossaryNote(errorMessage(caught));
+    } finally {
+      setGlossaryBusy(false);
+    }
+  }
+
+  async function replyInDictionaryTalk(): Promise<void> {
+    const text = dictionaryReply.trim();
+    if (!text) return;
+    setGlossaryBusy(true);
+    setGlossaryNote("");
+    try {
+      setDictionaryReply("");
+      await consult([...dictionaryTalk, { role: "reader", text }], dictionaryPage);
+    } catch (caught) {
+      setGlossaryNote(errorMessage(caught));
+    } finally {
+      setGlossaryBusy(false);
+    }
+  }
+
+  function endDictionaryTalk(): void {
+    setDictionaryTalk([]);
+    setDictionaryReply("");
+    setDictionaryPage(null);
+  }
+
+  /** The reader approved the plan: Claude builds the dictionary as agreed and it is saved. */
+  async function buildGlossary(): Promise<void> {
+    setGlossaryBusy(true);
+    setGlossaryNote("");
+    try {
+      const conversation: DictionaryTurn[] = [...dictionaryTalk, { role: "reader", text: "この内容で辞書を作ってください。" }];
+      const result = await sendMessage<DictionaryChanges>({ type: "BUILD_DICTIONARY", ...dictionaryMessage(conversation, dictionaryPage) });
+      const first = dictionaryTalk[0]?.text ?? "";
+      const label = (glossaryRequest.trim() ? first : dictionaryPage?.title || first).replace(/\s+/g, " ").trim().slice(0, 40);
+      const { text, changed } = applyDictionaryChanges(glossary, result, false, `AIが作成：${label}`);
       if (changed === 0) {
-        setGlossaryNote("新しく加える用語はありませんでした。");
+        setGlossaryNote("新しく加えるものはありませんでした。");
         return;
       }
-      await saveGlossary(text, `AIが${changed}語を追加して保存しました。`);
+      if (!(await saveGlossary(text, `AIが辞書を作って保存しました（${describeDictionary(result)}）。`))) return;
+      endDictionaryTalk();
+      setGlossaryRequest("");
     } catch (caught) {
       setGlossaryNote(errorMessage(caught));
     } finally {
@@ -1084,14 +1152,14 @@ export function SidePanel() {
     setFixBusy(true);
     setFixNote("");
     try {
-      const result = await sendMessage<{ entries: GlossaryEntry[] }>({ type: "FIX_GLOSSARY", sourceText: entry.sourceText, translatedText: entry.translatedText ?? "", feedback: fixFeedback });
-      const { text, changed } = applyGlossaryEntries(glossary, result.entries, true, "AIが修正");
+      const result = await sendMessage<DictionaryChanges>({ type: "FIX_DICTIONARY", sourceText: entry.sourceText, translatedText: entry.translatedText ?? "", feedback: fixFeedback });
+      const { text, changed } = applyDictionaryChanges(glossary, result, true, "AIが修正");
       if (changed === 0) {
-        setFixNote("用語集で直せるところが見つかりませんでした。書き方を変えてお試しください。");
+        setFixNote("辞書で直せるところが見つかりませんでした。書き方を変えてお試しください。");
         return;
       }
       if (!(await saveGlossary(text))) return;
-      setFixNote(`用語集を直して訳し直しました：${result.entries.map((item) => `${item.term} = ${item.translation}`).join("、")}`);
+      setFixNote(`辞書を直して訳し直しました：${fixSummary(result)}`);
       setFixFeedback("");
       await translateOne(entry);
     } catch (caught) {
@@ -1443,41 +1511,134 @@ export function SidePanel() {
           </button>
           <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）へ直接送信します。</p>
 
-          <h3 className="settings-section">用語集（Claude）</h3>
-          <p className="field-hint">翻訳サービスがClaudeのとき、用語集の訳語で翻訳します。翻訳する文章に出てくる用語だけをClaudeに送ります。</p>
-          <label className="field-label" htmlFor="glossary-request">AIで作る</label>
-          <textarea
-            id="glossary-request"
-            className="field compose-area short"
-            value={glossaryRequest}
-            onChange={(event) => setGlossaryRequest(event.target.value)}
-            placeholder={"どんな文章を、どう訳したいか\n例：Reactの技術記事。用語はカタカナ、APIやライブラリの名前は英語のまま"}
-          />
-          <label className="check-row">
-            <input type="checkbox" checked={glossaryUsePage} onChange={(event) => setGlossaryUsePage(event.target.checked)} />
-            <span>開いているページの専門用語も拾う<small>ページの本文もClaudeへ送信されます。</small></span>
-          </label>
-          <button className="button primary block" type="button" onClick={() => void buildGlossary()} disabled={glossaryBusy || (!glossaryRequest.trim() && !glossaryUsePage)} aria-busy={glossaryBusy}>
-            {glossaryBusy ? <span className="spinner" aria-hidden="true" /> : <Icon name="pen" />}
-            {glossaryBusy ? "用語集を作っています…" : "AIで用語集を作る"}
-          </button>
-          <label className="field-label" htmlFor="glossary">用語集の中身</label>
-          <p className="field-hint">1行に「用語 = 訳語」の形です。手で直したり、表計算ソフトから2列を貼り付けたりもできます。#で始まる行はメモです。</p>
-          <textarea
-            id="glossary"
-            className="field compose-area"
-            spellCheck={false}
-            value={glossary}
-            onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
-            placeholder={"pull request = プルリクエスト\ndeploy = デプロイ"}
-          />
-          <button className="text-button" type="button" onClick={() => { setGlossary((current) => mergeGlossary(current, PROGRAMMING_GLOSSARY)); setGlossaryNote(""); }}>
-            <Icon name="pen" />プログラミング用語を追加
-          </button>
-          <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
-            用語集を保存
-          </button>
-          {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
+          {/* An advanced setting: folded until the reader opens it, so the basic settings stay simple. */}
+          <div className="settings-heading">
+            <h3 className="settings-section" id="glossary-label">
+              <button
+                type="button"
+                className="section-toggle"
+                aria-expanded={help.isOpen("glossary-panel")}
+                aria-controls="glossary-panel"
+                onClick={() => help.toggle("glossary-panel")}
+              >
+                <Icon name="back" className={`section-chevron ${help.isOpen("glossary-panel") ? "open" : ""}`} />
+                辞書（Claude）
+                <span className="badge missing">上級者向け</span>
+              </button>
+            </h3>
+            <HelpToggle id="glossary-label" label="辞書（Claude）" help={help} />
+          </div>
+          <HelpText id="glossary-label" help={help}>
+            辞書は、Claudeが翻訳のときに参考にする手本です。「訳し方の方針」「用語」「例文（原文と手本の訳）」の3つでできていて、どんな文章をどう訳したいかを書いて（またはページを選んで）「辞書を作る」を押すと、Claudeがまず内容を読んで、どんな辞書にするかを提案し、わからないことを質問します。返事をして、内容に納得したら「この内容で辞書を作る」を押すと、AIが専用の手順（辞書を作るスキル）で作ります。「この辞書で翻訳する」を「使う」にしておくと、翻訳サービスがClaudeのとき、方針と、訳す文章に出てくる用語、近い例文を数件見て、同じような訳文を作ります。訳が気に入らなければ、翻訳カードの「この訳を直す」から辞書を直せます（直した訳が例文として加わります）。
+          </HelpText>
+          <div id="glossary-panel" hidden={!help.isOpen("glossary-panel")}>
+            {dictionaryTalk.length === 0 ? (
+              <>
+                <label className="field-label" htmlFor="glossary-request">どんな文章を、どう訳したいか</label>
+                <textarea
+                  id="glossary-request"
+                  className="field compose-area short"
+                  value={glossaryRequest}
+                  onChange={(event) => setGlossaryRequest(event.target.value)}
+                  placeholder={"例：Reactの技術記事。用語はカタカナ、APIやライブラリの名前は英語のまま"}
+                />
+                <label className="check-row">
+                  <input type="checkbox" checked={glossaryUsePage} onChange={(event) => setGlossaryUsePage(event.target.checked)} />
+                  <span>開いているページから辞書を作る<small>ページの本文もClaudeへ送信されます。</small></span>
+                </label>
+                <button className="button primary block" type="button" onClick={() => void startDictionaryTalk()} disabled={glossaryBusy || (!glossaryRequest.trim() && !glossaryUsePage)} aria-busy={glossaryBusy}>
+                  {glossaryBusy ? <span className="spinner" aria-hidden="true" /> : <Icon name="pen" />}
+                  {glossaryBusy ? "Claudeが考えています…" : "辞書を作る"}
+                </button>
+              </>
+            ) : (
+              // Claude proposes, the reader answers; nothing is built until the reader approves.
+              <div className="dictionary-talk">
+                <ol className="talk-list" aria-label="辞書の相談" ref={talkList}>
+                  {dictionaryTalk.map((turn, index) => (
+                    <li key={index} className={`talk-turn ${turn.role}`}>
+                      <span className="talk-who">{turn.role === "claude" ? "Claude" : "あなた"}</span>
+                      <p>{turn.text}</p>
+                    </li>
+                  ))}
+                  {glossaryBusy && <li className="talk-turn claude"><span className="talk-who">Claude</span><p><span className="spinner" aria-hidden="true" />考えています…</p></li>}
+                </ol>
+                <label className="field-label" htmlFor="dictionary-reply">返事</label>
+                <textarea
+                  id="dictionary-reply"
+                  className="field compose-area short"
+                  value={dictionaryReply}
+                  onChange={(event) => setDictionaryReply(event.target.value)}
+                  placeholder="質問への答えや、変えてほしいところ"
+                  disabled={glossaryBusy}
+                />
+                <div className="talk-actions">
+                  <button className="button secondary" type="button" onClick={() => void replyInDictionaryTalk()} disabled={glossaryBusy || !dictionaryReply.trim()}>
+                    送る
+                  </button>
+                  <button
+                    className="button primary"
+                    type="button"
+                    onClick={() => void buildGlossary()}
+                    disabled={glossaryBusy || dictionaryTalk[dictionaryTalk.length - 1]?.role !== "claude"}
+                    aria-busy={glossaryBusy}
+                  >
+                    この内容で辞書を作る
+                  </button>
+                </div>
+                <button className="text-button" type="button" onClick={endDictionaryTalk} disabled={glossaryBusy}>相談をやめる</button>
+              </div>
+            )}
+            {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
+            {/* The dictionary is built by the AI; reading or editing it by hand is a step further in. */}
+            <p className="field-hint">{savedGlossarySummary ? `いまの辞書：${savedGlossarySummary}` : "辞書はまだありません。"}</p>
+            <button
+              className="text-button"
+              type="button"
+              aria-expanded={help.isOpen("glossary-editor")}
+              aria-controls="glossary-editor"
+              onClick={() => help.toggle("glossary-editor")}
+            >
+              <Icon name="back" className={`section-chevron ${help.isOpen("glossary-editor") ? "open" : ""}`} />辞書の中身を見る・手で直す
+            </button>
+            <div id="glossary-editor" hidden={!help.isOpen("glossary-editor")}>
+              <div className="field-heading">
+                <label className="field-label" htmlFor="glossary" id="glossary-content-label">辞書の中身</label>
+                <HelpToggle id="glossary-content-label" label="辞書の中身" help={help} />
+              </div>
+              <HelpText id="glossary-content-label" help={help}>
+                「## 訳し方の方針」の下は1行に1つの決まり、「## 用語」の下は1行に「用語 = 訳語」（表計算ソフトから2列を貼り付けても可）、「## 例文」の下は「原文:」の行と「訳文:」の行の組です。#で始まる行はメモです。
+              </HelpText>
+              <textarea
+                id="glossary"
+                className="field compose-area tall"
+                spellCheck={false}
+                value={glossary}
+                onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
+                placeholder={"## 訳し方の方針\n- です・ます調で訳す\n\n## 用語\npull request = プルリクエスト\n\n## 例文\n原文: Run the following command.\n訳文: 次のコマンドを実行します。"}
+              />
+              <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
+                辞書を保存
+              </button>
+            </div>
+            <div className="field-heading">
+              <span className="field-label" id="use-glossary-label">この辞書で翻訳する</span>
+            </div>
+            <div className="mode-switch" role="radiogroup" aria-labelledby="use-glossary-label">
+              {([true, false] as const).map((value) => (
+                <button
+                  key={String(value)}
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.useGlossary === value}
+                  className={settings.useGlossary === value ? "active" : ""}
+                  onClick={() => void changeUseGlossary(value)}
+                >
+                  {value ? "使う" : "使わない"}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
       ) : (
         <>
@@ -1587,7 +1748,7 @@ export function SidePanel() {
                           />
                           <div className="fix-actions">
                             <button className="button primary" type="button" onClick={() => void fixTranslation(entry)} disabled={fixBusy || !fixFeedback.trim()} aria-busy={fixBusy}>
-                              {fixBusy ? "直しています…" : "用語集を直して訳し直す"}
+                              {fixBusy ? "直しています…" : "辞書を直して訳し直す"}
                             </button>
                             <button className="text-button" type="button" onClick={() => setFixingId(null)}>閉じる</button>
                           </div>
@@ -1653,7 +1814,7 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）、用語集のうち翻訳する文章に出てくる用語も送ります。用語集をAIで作る・直すときは、書いた内容と、対象の文章（選んだ場合は開いているページの本文）をClaudeへ送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）、辞書のうち翻訳する文章に出てくる用語も送ります。辞書をAIで作る・直すときは、書いた内容と、対象の文章（選んだ場合は開いているページの本文）をClaudeへ送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe Jev、DeepL、Claude（Anthropic）です。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a> · <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">Anthropicのプライバシー情報</a></p>
             <div className="consent-actions">
@@ -1766,26 +1927,37 @@ type HelpState = { isOpen: (id: string) => boolean; toggle: (id: string) => void
 
 /** A settings heading whose explanation stays folded until the reader asks for it with the ⓘ button. */
 function SettingHeading({ id, label, help, children }: { id: string; label: string; help: HelpState; children: React.ReactNode }) {
-  const open = help.isOpen(id);
   return (
     <>
       <div className="settings-heading">
         <h3 className="settings-section" id={id}>{label}</h3>
-        <button
-          type="button"
-          className={`help-toggle ${open ? "active" : ""}`}
-          aria-expanded={open}
-          aria-controls={`${id}-help`}
-          aria-label={`${label}の説明`}
-          title={open ? "説明を閉じる" : "説明を表示"}
-          onClick={() => help.toggle(id)}
-        >
-          <Icon name="info" />
-        </button>
+        <HelpToggle id={id} label={label} help={help} />
       </div>
-      <p className="field-hint help-text" id={`${id}-help`} hidden={!open}>{children}</p>
+      <HelpText id={id} help={help}>{children}</HelpText>
     </>
   );
+}
+
+/** The "i" button that unfolds a setting's explanation. */
+function HelpToggle({ id, label, help }: { id: string; label: string; help: HelpState }) {
+  const open = help.isOpen(id);
+  return (
+    <button
+      type="button"
+      className={`help-toggle ${open ? "active" : ""}`}
+      aria-expanded={open}
+      aria-controls={`${id}-help`}
+      aria-label={`${label}の説明`}
+      title={open ? "説明を閉じる" : "説明を表示"}
+      onClick={() => help.toggle(id)}
+    >
+      <Icon name="info" />
+    </button>
+  );
+}
+
+function HelpText({ id, help, children }: { id: string; help: HelpState; children: React.ReactNode }) {
+  return <p className="field-hint help-text" id={`${id}-help`} hidden={!help.isOpen(id)}>{children}</p>;
 }
 
 function deeplEndpointHint(endpoint: DeepLEndpoint, plan: DeepLPlan | null): string {
@@ -1813,4 +1985,14 @@ function stateLabel(state: SegmentState): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "処理に失敗しました。";
+}
+
+/** What a fix changed, in a few words: the terms, the rules and how many examples. */
+function fixSummary(changes: DictionaryChanges): string {
+  const parts = [
+    ...changes.terms.map((item) => `${item.term} = ${item.translation}`),
+    ...changes.style,
+    ...(changes.examples.length > 0 ? [`例文を${changes.examples.length}件`] : []),
+  ];
+  return parts.join("、");
 }

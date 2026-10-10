@@ -1,3 +1,5 @@
+import type { DictionaryTurn } from "./dictionary";
+
 export type TargetLanguage = "JA" | "EN";
 export type DisplayMode = "source-panel" | "inline";
 export type ThemePreference = "system" | "light" | "dark";
@@ -105,6 +107,8 @@ export interface ExtensionSettings {
   pageSelectTrigger: PageSelectTrigger;
   /** The Claude model that translates when Claude is the translation service. Haiku costs the least. */
   claudeModel: ClaudeModel;
+  /** Translate with the reader's dictionary (Claude only). The dictionary is kept when this is off. */
+  useGlossary: boolean;
 }
 
 export type PageSelectTrigger = "click" | "hover";
@@ -133,6 +137,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   translationProvider: "chrome",
   pageSelectTrigger: "click",
   claudeModel: "claude-haiku-5-5",
+  useGlossary: true,
 };
 
 export type ExtensionMessage =
@@ -157,9 +162,11 @@ export type ExtensionMessage =
   | { type: "GET_SELECTION_AUTO" }
   | { type: "COMPOSE_TRANSLATE"; text: string; targetLang: ComposeLanguage; context?: string }
   | { type: "COMPOSE_REPHRASE"; text: string; targetLang: EnglishVariant; style: WritingStyle }
-  // Claude builds glossary entries from the reader's wishes (and the open page), or fixes them after a translation they disliked.
-  | { type: "BUILD_GLOSSARY"; request: string; pageTitle?: string; pageText?: string }
-  | { type: "FIX_GLOSSARY"; sourceText: string; translatedText: string; feedback: string };
+  // Claude builds the dictionary from the reader's wishes (and the open page), or fixes it after a translation they disliked.
+  // Building starts with a consultation: Claude proposes, the reader answers, and the dictionary is built once they approve.
+  | { type: "CONSULT_DICTIONARY"; conversation: DictionaryTurn[]; pageTitle?: string; pageText?: string }
+  | { type: "BUILD_DICTIONARY"; conversation: DictionaryTurn[]; pageTitle?: string; pageText?: string }
+  | { type: "FIX_DICTIONARY"; sourceText: string; translatedText: string; feedback: string };
 
 /** English variants DeepL writes; the writing check compares against one of them. */
 export type EnglishVariant = "EN-US" | "EN-GB";
