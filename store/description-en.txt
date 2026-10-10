@@ -18,8 +18,8 @@ Translate just the text you select, in a small tooltip next to it. It also works
 • Writing check (DeepL key required)
 See how your English reads by translating it back into Japanese, or write in Japanese and get an English version to check.
 
-• Glossary (with Claude)
-Describe what you read and how you want it translated, and Claude builds a glossary and translates with those terms. Not happy with a translation? Say what to fix on its card, and Claude updates the glossary and translates it again.
+• Dictionary (with Claude)
+Describe what you read and how you want it translated, and Claude builds a dictionary of style rules, terms and example translations, then translates following it. Not happy with a translation? Say what to fix on its card, and Claude updates the dictionary and translates it again.
 
 • Translation cache
 Reopen a page within a few hours and the saved translation is reused. Passages that changed are translated again.

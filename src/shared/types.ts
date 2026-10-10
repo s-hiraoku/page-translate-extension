@@ -160,9 +160,9 @@ export type ExtensionMessage =
   | { type: "GET_SELECTION_AUTO" }
   | { type: "COMPOSE_TRANSLATE"; text: string; targetLang: ComposeLanguage; context?: string }
   | { type: "COMPOSE_REPHRASE"; text: string; targetLang: EnglishVariant; style: WritingStyle }
-  // Claude builds glossary entries from the reader's wishes (and the open page), or fixes them after a translation they disliked.
-  | { type: "BUILD_GLOSSARY"; request: string; pageTitle?: string; pageText?: string }
-  | { type: "FIX_GLOSSARY"; sourceText: string; translatedText: string; feedback: string };
+  // Claude builds the dictionary from the reader's wishes (and the open page), or fixes it after a translation they disliked.
+  | { type: "BUILD_DICTIONARY"; request: string; pageTitle?: string; pageText?: string }
+  | { type: "FIX_DICTIONARY"; sourceText: string; translatedText: string; feedback: string };
 
 /** English variants DeepL writes; the writing check compares against one of them. */
 export type EnglishVariant = "EN-US" | "EN-GB";

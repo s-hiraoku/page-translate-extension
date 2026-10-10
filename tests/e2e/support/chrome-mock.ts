@@ -101,8 +101,12 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         ? { text: "次のバージョンのリリース予定について尋ねたいです。" }
         : { text: "I would like to ask about the release schedule for the next version." },
       COMPOSE_REPHRASE: () => ({ text: "I want to ask about the release schedule for the next version." }),
-      BUILD_GLOSSARY: () => ({ entries: [{ term: "dashboard", translation: "ダッシュボード" }, { term: "deploy", translation: "デプロイ" }] }),
-      FIX_GLOSSARY: () => ({ entries: [{ term: "dashboard", translation: "管理画面" }] }),
+      BUILD_DICTIONARY: () => ({
+        style: ["です・ます調で訳す"],
+        terms: [{ term: "dashboard", translation: "ダッシュボード" }, { term: "deploy", translation: "デプロイ" }],
+        examples: [{ source: "We plan to ship version 2.0 next month.", translation: "来月、バージョン2.0をリリースする予定です。" }],
+      }),
+      FIX_DICTIONARY: () => ({ style: [], terms: [{ term: "dashboard", translation: "管理画面" }], examples: [] }),
     };
 
     const port = (name: string) => {

@@ -650,7 +650,7 @@ test.describe("translating with Claude", () => {
     await expect.poll(stored).toBe("claude-sonnet-5-5");
   });
 
-  test("adds the programming terms to the glossary and saves it, dropping Claude's cached pages", async ({ page }) => {
+  test("adds the programming starter to the dictionary and saves it, dropping Claude's cached pages", async ({ page }) => {
     const claudePage = { savedAt: Date.now(), usedAt: Date.now(), hashes: [], decisions: {}, translations: {} };
     await openPanel(page, { stored: {
       pageTranslateGlossary: "deploy = 配置\n",
@@ -662,11 +662,13 @@ test.describe("translating with Claude", () => {
 
     const glossary = page.getByRole("textbox", { name: "辞書の中身" });
     await expect(glossary).toHaveValue("deploy = 配置\n");
-    await page.getByRole("button", { name: "プログラミング用語を追加" }).click();
+    await page.getByRole("button", { name: "プログラミング向けのひな形を追加" }).click();
     await expect(glossary).toHaveValue(/pull request = プルリクエスト/);
+    await expect(glossary).toHaveValue(/## 訳し方の方針\n- 本文は「です・ます」調/);
+    await expect(glossary).toHaveValue(/## 例文\n原文: Run the following command to install the package\.\n訳文: /);
     await expect(glossary).not.toHaveValue(/deploy = デプロイ/);
     await page.getByRole("button", { name: "辞書を保存" }).click();
-    await expect(page.getByText(/語を保存しました/)).toBeVisible();
+    await expect(page.getByText(/辞書を保存しました（方針 7件・用語 \d+語・例文 8件）/)).toBeVisible();
 
     const read = (key: string) => page.evaluate(async (name) => (await (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, unknown>> } } } }).chrome.storage.local.get(name))[name], key);
     const stored = { pageTranslateGlossary: await read("pageTranslateGlossary"), pageTranslateCache: await read("pageTranslateCache") };
@@ -681,7 +683,7 @@ test.describe("translating with Claude", () => {
     const toggle = page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByRole("textbox", { name: "辞書の中身" })).toBeHidden();
-    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります）")).toBeHidden();
+    await expect(page.getByText(/近い例文を数件見て/)).toBeHidden();
 
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -690,11 +692,11 @@ test.describe("translating with Claude", () => {
     await expect(page.getByRole("textbox", { name: "辞書の中身" })).toBeHidden();
     await page.getByRole("button", { name: "辞書の中身を見る・手で直す" }).click();
     await expect(page.getByRole("textbox", { name: "辞書の中身" })).toBeVisible();
-    await expect(page.getByText("1行に「用語 = 訳語」の形です")).toBeHidden();
+    await expect(page.getByText(/「## 例文」の下は/)).toBeHidden();
     await page.getByRole("button", { name: "辞書の中身の説明" }).click();
-    await expect(page.getByText("1行に「用語 = 訳語」の形です")).toBeVisible();
+    await expect(page.getByText(/「## 例文」の下は/)).toBeVisible();
     await page.getByRole("button", { name: "辞書（Claude）の説明" }).click();
-    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります）")).toBeVisible();
+    await expect(page.getByText(/近い例文を数件見て/)).toBeVisible();
   });
 
   test("turns translating with the dictionary off and on, dropping Claude's cached pages", async ({ page }) => {
@@ -716,24 +718,38 @@ test.describe("translating with Claude", () => {
     expect(Object.keys((stored.cache as { pages: object }).pages)).toEqual([]);
   });
 
-  test("builds glossary entries with Claude from the reader's wishes and the open page, keeping the reader's own lines", async ({ page }) => {
+  test("builds the dictionary with Claude from the reader's wishes and the open page, keeping the reader's own lines", async ({ page }) => {
     await openPanel(page, { stored: { pageTranslateGlossary: "deploy = 配置\n" } });
     await page.getByRole("button", { name: "設定を開く" }).click();
     await page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ }).click();
     await page.getByRole("button", { name: "辞書の中身を見る・手で直す" }).click();
 
     await page.getByRole("textbox", { name: "どんな文章を、どう訳したいか" }).fill("Webアプリの技術記事。用語はカタカナ");
-    await page.getByText("開いているページの専門用語も拾う").click();
+    await page.getByText("開いているページから用語と例文を作る").click();
     await page.getByRole("button", { name: "辞書を作る" }).click();
 
-    await expect(page.getByText("AIが1語を追加して保存しました。")).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "辞書の中身" })).toHaveValue("deploy = 配置\n\n# AIが作成：Webアプリの技術記事。用語はカタカナ\ndashboard = ダッシュボード\n");
-    const build = (await sent(page)).find((message) => message.type === "BUILD_GLOSSARY") as { request?: string; pageText?: string } | undefined;
+    await expect(page.getByText("AIが辞書を作って保存しました（方針 1件・用語 2語・例文 1件）。")).toBeVisible();
+    await expect(page.getByText("いまの辞書：方針 1件・用語 2語・例文 1件")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "辞書の中身" })).toHaveValue([
+      "deploy = 配置",
+      "",
+      "# AIが作成：Webアプリの技術記事。用語はカタカナ",
+      "dashboard = ダッシュボード",
+      "",
+      "## 訳し方の方針",
+      "- です・ます調で訳す",
+      "",
+      "## 例文",
+      "原文: We plan to ship version 2.0 next month.",
+      "訳文: 来月、バージョン2.0をリリースする予定です。",
+      "",
+    ].join("\n"));
+    const build = (await sent(page)).find((message) => message.type === "BUILD_DICTIONARY") as { request?: string; pageText?: string } | undefined;
     expect(build?.request).toBe("Webアプリの技術記事。用語はカタカナ");
     expect(build?.pageText).toBe("We plan to ship version 2.0 next month.");
   });
 
-  test("fixes the glossary from a card the reader disliked and translates that passage again", async ({ page }) => {
+  test("fixes the dictionary from a card the reader disliked and translates that passage again", async ({ page }) => {
     await openPanel(page, { settings: { translationProvider: "claude" }, stored: { pageTranslateGlossary: "dashboard = ダッシュボード\n" } });
     await translate(page);
     await page.locator('[data-entry-id="segment-2"] .entry-main').click();
@@ -743,7 +759,7 @@ test.describe("translating with Claude", () => {
 
     await expect(page.getByText("辞書を直して訳し直しました：dashboard = 管理画面")).toBeVisible();
     const messages = await sent(page);
-    const fix = messages.find((message) => message.type === "FIX_GLOSSARY") as { sourceText?: string; feedback?: string } | undefined;
+    const fix = messages.find((message) => message.type === "FIX_DICTIONARY") as { sourceText?: string; feedback?: string } | undefined;
     expect(fix?.feedback).toBe("dashboardは「管理画面」に");
     expect(fix?.sourceText).toContain("dashboards");
     const again = messages.filter((message) => message.type === "TRANSLATE_SEGMENTS").at(-1);

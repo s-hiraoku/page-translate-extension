@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { batchSegments, buildPageMessage, readEntries, readTranslations, sameTags } from "../../src/background/claude";
+import { batchSegments, buildPageMessage, readDictionaryChanges, readTranslations, sameTags } from "../../src/background/claude";
+import { parseDictionary } from "../../src/shared/dictionary";
 import type { CandidateSegment } from "../../src/shared/types";
 
 function segment(id: number, sourceHtml: string): CandidateSegment {
@@ -77,22 +78,38 @@ describe("sameTags", () => {
   });
 });
 
-describe("buildPageMessage glossary", () => {
-  it("sends only the glossary terms the batch uses", () => {
-    const glossary = [{ term: "deploy", translation: "デプロイ" }, { term: "merge", translation: "マージ" }];
-    const message = JSON.parse(buildPageMessage([segment(1, "Deploy the app.")], "JA", { pageTitle: "", pageText: "" }, glossary));
-    expect(message.glossary).toEqual([{ term: "deploy", translation: "デプロイ" }]);
-    expect(JSON.parse(buildPageMessage([segment(1, "Hello.")], "JA", { pageTitle: "", pageText: "" }, glossary)).glossary).toBeUndefined();
+describe("buildPageMessage dictionary", () => {
+  const dictionary = parseDictionary("## 訳し方の方針\n- です・ます調\n\n## 用語\ndeploy = デプロイ\nmerge = マージ\n\n## 例文\n原文: Deploy the app to production.\n訳文: アプリを本番環境にデプロイします。\n");
+
+  it("sends the style, the terms the batch uses and the examples close to it", () => {
+    const message = JSON.parse(buildPageMessage([segment(1, "Deploy the app.")], "JA", { pageTitle: "", pageText: "" }, dictionary));
+    expect(message.dictionary).toEqual({
+      style: ["です・ます調"],
+      terms: [{ term: "deploy", translation: "デプロイ" }],
+      examples: [{ source: "Deploy the app to production.", translation: "アプリを本番環境にデプロイします。" }],
+    });
+  });
+
+  it("sends nothing without a dictionary", () => {
+    expect(JSON.parse(buildPageMessage([segment(1, "Hello.")], "JA", { pageTitle: "", pageText: "" })).dictionary).toBeUndefined();
   });
 });
 
-describe("readEntries", () => {
-  it("keeps each entry on one line and drops incomplete ones", () => {
-    const answer = JSON.stringify({ entries: [{ term: "pull\nrequest", translation: "プル=リクエスト" }, { term: "x", translation: "" }] });
-    expect(readEntries(answer)).toEqual([{ term: "pull request", translation: "プル リクエスト" }]);
+describe("readDictionaryChanges", () => {
+  it("keeps each item on one line and drops incomplete ones", () => {
+    const answer = JSON.stringify({
+      style: ["です・ます調\nで訳す", ""],
+      terms: [{ term: "pull\nrequest", translation: "プル=リクエスト" }, { term: "x", translation: "" }],
+      examples: [{ source: "Run it.\nNow.", translation: "実行します。" }, { source: "", translation: "x" }],
+    });
+    expect(readDictionaryChanges(answer)).toEqual({
+      style: ["です・ます調 で訳す"],
+      terms: [{ term: "pull request", translation: "プル リクエスト" }],
+      examples: [{ source: "Run it. Now.", translation: "実行します。" }],
+    });
   });
 
-  it("fails on an answer without entries", () => {
-    expect(() => readEntries("{}")).toThrow("辞書を受け取れません");
+  it("fails on an answer without a dictionary", () => {
+    expect(() => readDictionaryChanges("{}")).toThrow("辞書を受け取れません");
   });
 });
