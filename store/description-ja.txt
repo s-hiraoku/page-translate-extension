@@ -1,6 +1,6 @@
 英語と日本語のWebページを、原文と訳文を見比べながら読めるChrome拡張機能です。ページの本文だけを翻訳し、訳文を原文の場所と線で結びます。
 
-APIキーなしですぐ使えます：パソコン版のChrome 138以降では、Chromeに内蔵の翻訳を使い、文章をこの端末の中で翻訳します。
+APIキーなしですぐ使えます：パソコン版のGoogle Chrome™ 138以降では、Chromeに内蔵の翻訳を使い、文章をこの端末の中で翻訳します。
 
 ■ できること
 
@@ -47,3 +47,5 @@ Chrome内蔵の翻訳では、ページの文章をどこにも送りません�
 使い方ガイド：https://s-hiraoku.github.io/page-translate-extension/
 プライバシーポリシー：https://s-hiraoku.github.io/page-translate-extension/privacy.html
 サポート：https://github.com/s-hiraoku/page-translate-extension/issues
+
+Google ChromeはGoogle LLCの商標です。DeepLはDeepL SEの商標です。ClaudeはAnthropic, PBCの商標です。Page Translateは個人が開発した拡張機能で、これらの企業とは提携しておらず、承認も受けていません。

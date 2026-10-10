@@ -1,6 +1,6 @@
 Read English and Japanese web pages side by side with their translation. Page Translate translates only the main text of a page, and links each translation to the place it came from.
 
-No API key needed: on desktop Chrome 138 or later, Page Translate uses Chrome's built-in translator, and the text is translated on your device.
+No API key needed: on desktop Google Chrome™ 138 or later, Page Translate uses Chrome's built-in translator, and the text is translated on your device.
 
 ■ What you can do
 
@@ -47,3 +47,5 @@ With Chrome's built-in translator, page text is not sent anywhere. Only when you
 User guide: https://s-hiraoku.github.io/page-translate-extension/#en
 Privacy policy: https://s-hiraoku.github.io/page-translate-extension/privacy.html
 Support: https://github.com/s-hiraoku/page-translate-extension/issues
+
+Google Chrome is a trademark of Google LLC. DeepL is a trademark of DeepL SE. Claude is a trademark of Anthropic, PBC. Page Translate is an independent extension and is not affiliated with or endorsed by these companies.
