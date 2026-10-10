@@ -118,6 +118,7 @@ export function SidePanel() {
   /** The glossary as the reader is editing it, and as last saved. */
   const [glossary, setGlossary] = useState("");
   const [savedGlossary, setSavedGlossary] = useState("");
+  const savedGlossaryCount = useMemo(() => parseGlossary(savedGlossary).length, [savedGlossary]);
   const [glossaryNote, setGlossaryNote] = useState("");
   /** What the reader wants the glossary for, and whether Claude also picks terms from the open page. */
   const [glossaryRequest, setGlossaryRequest] = useState("");
@@ -1489,27 +1490,41 @@ export function SidePanel() {
               {glossaryBusy ? <span className="spinner" aria-hidden="true" /> : <Icon name="pen" />}
               {glossaryBusy ? "辞書を作っています…" : "AIで辞書を作る"}
             </button>
-            <div className="field-heading">
-              <label className="field-label" htmlFor="glossary" id="glossary-content-label">辞書の中身</label>
-              <HelpToggle id="glossary-content-label" label="辞書の中身" help={help} />
+            {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
+            {/* The dictionary is built by the AI; reading or editing it by hand is a step further in. */}
+            <p className="field-hint">{savedGlossaryCount > 0 ? `いまの辞書：${savedGlossaryCount}語` : "辞書はまだありません。"}</p>
+            <button
+              className="text-button"
+              type="button"
+              aria-expanded={help.isOpen("glossary-editor")}
+              aria-controls="glossary-editor"
+              onClick={() => help.toggle("glossary-editor")}
+            >
+              <Icon name="back" className={`section-chevron ${help.isOpen("glossary-editor") ? "open" : ""}`} />辞書の中身を見る・手で直す
+            </button>
+            <div id="glossary-editor" hidden={!help.isOpen("glossary-editor")}>
+              <div className="field-heading">
+                <label className="field-label" htmlFor="glossary" id="glossary-content-label">辞書の中身</label>
+                <HelpToggle id="glossary-content-label" label="辞書の中身" help={help} />
+              </div>
+              <HelpText id="glossary-content-label" help={help}>
+                1行に「用語 = 訳語」の形です。手で直したり、表計算ソフトから2列を貼り付けたりもできます。#で始まる行はメモです。
+              </HelpText>
+              <textarea
+                id="glossary"
+                className="field compose-area"
+                spellCheck={false}
+                value={glossary}
+                onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
+                placeholder={"pull request = プルリクエスト\ndeploy = デプロイ"}
+              />
+              <button className="text-button" type="button" onClick={() => { setGlossary((current) => mergeGlossary(current, PROGRAMMING_GLOSSARY)); setGlossaryNote(""); }}>
+                <Icon name="pen" />プログラミング用語を追加
+              </button>
+              <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
+                辞書を保存
+              </button>
             </div>
-            <HelpText id="glossary-content-label" help={help}>
-              1行に「用語 = 訳語」の形です。手で直したり、表計算ソフトから2列を貼り付けたりもできます。#で始まる行はメモです。
-            </HelpText>
-            <textarea
-              id="glossary"
-              className="field compose-area"
-              spellCheck={false}
-              value={glossary}
-              onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
-              placeholder={"pull request = プルリクエスト\ndeploy = デプロイ"}
-            />
-            <button className="text-button" type="button" onClick={() => { setGlossary((current) => mergeGlossary(current, PROGRAMMING_GLOSSARY)); setGlossaryNote(""); }}>
-              <Icon name="pen" />プログラミング用語を追加
-            </button>
-            <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
-              辞書を保存
-            </button>
             <div className="field-heading">
               <span className="field-label" id="use-glossary-label">この辞書で翻訳する</span>
             </div>
@@ -1527,7 +1542,6 @@ export function SidePanel() {
                 </button>
               ))}
             </div>
-            {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
           </div>
         </section>
       ) : (
