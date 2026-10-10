@@ -685,7 +685,7 @@ test.describe("translating with Claude", () => {
 
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByRole("button", { name: "AIで辞書を作る" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "辞書を作る" })).toBeVisible();
     await expect(page.getByText("辞書はまだありません。")).toBeVisible();
     await expect(page.getByRole("textbox", { name: "辞書の中身" })).toBeHidden();
     await page.getByRole("button", { name: "辞書の中身を見る・手で直す" }).click();
@@ -722,9 +722,9 @@ test.describe("translating with Claude", () => {
     await page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ }).click();
     await page.getByRole("button", { name: "辞書の中身を見る・手で直す" }).click();
 
-    await page.getByRole("textbox", { name: "AIで作る" }).fill("Webアプリの技術記事。用語はカタカナ");
+    await page.getByRole("textbox", { name: "どんな文章を、どう訳したいか" }).fill("Webアプリの技術記事。用語はカタカナ");
     await page.getByText("開いているページの専門用語も拾う").click();
-    await page.getByRole("button", { name: "AIで辞書を作る" }).click();
+    await page.getByRole("button", { name: "辞書を作る" }).click();
 
     await expect(page.getByText("AIが1語を追加して保存しました。")).toBeVisible();
     await expect(page.getByRole("textbox", { name: "辞書の中身" })).toHaveValue("deploy = 配置\n\n# AIが作成：Webアプリの技術記事。用語はカタカナ\ndashboard = ダッシュボード\n");

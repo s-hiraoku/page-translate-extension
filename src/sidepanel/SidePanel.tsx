@@ -1474,13 +1474,13 @@ export function SidePanel() {
             どんな文章をどう訳したいかを書くと、AIが辞書を作ります。「この辞書で翻訳する」を「使う」にしておくと、翻訳サービスがClaudeのとき、辞書の訳語で翻訳します（翻訳する文章に出てくる用語だけをClaudeに送ります）。訳が気に入らなければ、翻訳カードの「この訳を直す」から辞書を直せます。
           </HelpText>
           <div id="glossary-panel" hidden={!help.isOpen("glossary-panel")}>
-            <label className="field-label" htmlFor="glossary-request">AIで作る</label>
+            <label className="field-label" htmlFor="glossary-request">どんな文章を、どう訳したいか</label>
             <textarea
               id="glossary-request"
               className="field compose-area short"
               value={glossaryRequest}
               onChange={(event) => setGlossaryRequest(event.target.value)}
-              placeholder={"どんな文章を、どう訳したいか\n例：Reactの技術記事。用語はカタカナ、APIやライブラリの名前は英語のまま"}
+              placeholder={"例：Reactの技術記事。用語はカタカナ、APIやライブラリの名前は英語のまま"}
             />
             <label className="check-row">
               <input type="checkbox" checked={glossaryUsePage} onChange={(event) => setGlossaryUsePage(event.target.checked)} />
@@ -1488,7 +1488,7 @@ export function SidePanel() {
             </label>
             <button className="button primary block" type="button" onClick={() => void buildGlossary()} disabled={glossaryBusy || (!glossaryRequest.trim() && !glossaryUsePage)} aria-busy={glossaryBusy}>
               {glossaryBusy ? <span className="spinner" aria-hidden="true" /> : <Icon name="pen" />}
-              {glossaryBusy ? "辞書を作っています…" : "AIで辞書を作る"}
+              {glossaryBusy ? "辞書を作っています…" : "辞書を作る"}
             </button>
             {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
             {/* The dictionary is built by the AI; reading or editing it by hand is a step further in. */}
