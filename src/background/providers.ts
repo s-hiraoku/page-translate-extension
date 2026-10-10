@@ -1,6 +1,7 @@
 import type { CandidateSegment, ComposeLanguage, DeepLPlan, Decision, EnglishVariant, TargetLanguage, WritingStyle } from "../shared/types";
 import { PROVIDER_KEYS_KEY, SETTINGS_KEY, DEFAULT_SETTINGS, resolveDeepLPlan, type ExtensionSettings, type ProviderKeys, type ProviderStatus } from "../shared/types";
-import { translateSegmentsWithClaude, translateTextWithClaude } from "./claude";
+import { buildGlossaryWithClaude, fixGlossaryWithClaude, translateSegmentsWithClaude, translateTextWithClaude } from "./claude";
+import { GLOSSARY_KEY, parseGlossary, type GlossaryEntry } from "../shared/glossary";
 
 type DecisionResult = { decisions: Array<{ id: string; decision: Decision; confidence: number }> };
 type TranslationResult = { translations: Array<{ id: string; translatedText: string; translatedHtml: string }> };
@@ -193,7 +194,7 @@ async function translateSegmentsByClaude(
   validateSegments(segments);
   // Without the page's text from the panel, the passages themselves, in reading order, are the page.
   const context = pageText ?? [...segments].sort((a, b) => a.order - b.order).map((segment) => segment.sourceText).join("\n");
-  const html = await translateSegmentsWithClaude(apiKey, segments, targetLanguage, { pageTitle, pageText: context });
+  const html = await translateSegmentsWithClaude(apiKey, segments, targetLanguage, { pageTitle, pageText: context }, await readGlossary());
   return { translations: segments.map((segment, index) => ({ id: segment.id, translatedHtml: html[index] ?? "", translatedText: htmlToText(html[index] ?? "") })) };
 }
 
@@ -203,7 +204,29 @@ export async function translateSelectionText(text: string, targetLang: ComposeLa
   if (settings.translationProvider !== "claude") return translateText(text, targetLang);
   if (!keys.anthropicApiKey) throw new Error("設定画面でClaudeのAPIキーを登録してください。");
   validateComposeText(text);
-  return { text: await translateTextWithClaude(keys.anthropicApiKey, text, targetLang) };
+  return { text: await translateTextWithClaude(keys.anthropicApiKey, text, targetLang, await readGlossary()) };
+}
+
+/** New glossary entries Claude suggests for the reader's wishes (and the open page's terms, when given). */
+export async function buildGlossary(request: string, page?: { pageTitle: string; pageText: string }): Promise<{ entries: GlossaryEntry[] }> {
+  const keys = await readProviderKeys();
+  if (!keys.anthropicApiKey) throw new Error("用語集を作るには、設定画面でClaudeのAPIキーを登録してください。");
+  if (!request.trim() && !page) throw new Error("どんな文章を、どう訳したいかを書いてください。");
+  return { entries: await buildGlossaryWithClaude(keys.anthropicApiKey, { request, page, current: await readGlossary() }) };
+}
+
+/** Glossary entries Claude suggests so that a translation the reader disliked comes out right. */
+export async function fixGlossary(sourceText: string, translatedText: string, feedback: string): Promise<{ entries: GlossaryEntry[] }> {
+  const keys = await readProviderKeys();
+  if (!keys.anthropicApiKey) throw new Error("用語集を直すには、設定画面でClaudeのAPIキーを登録してください。");
+  if (!feedback.trim()) throw new Error("どう直したいかを書いてください。");
+  return { entries: await fixGlossaryWithClaude(keys.anthropicApiKey, { sourceText, translatedText, feedback, glossary: await readGlossary() }) };
+}
+
+async function readGlossary(): Promise<GlossaryEntry[]> {
+  const stored = await chrome.storage.local.get(GLOSSARY_KEY);
+  const text = stored[GLOSSARY_KEY];
+  return typeof text === "string" ? parseGlossary(text) : [];
 }
 
 /**

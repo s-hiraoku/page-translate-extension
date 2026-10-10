@@ -7,7 +7,7 @@ import type {
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type ExtensionSettings, type PanelCommandRequest } from "../shared/types";
 import { CONSENT_NOTE, createSelectionTranslator, type SelectionOutcome } from "./selection";
 import { settingsOnInstall } from "../shared/effective-settings";
-import { classifyCandidates, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateSelectionText, translateText } from "./providers";
+import { buildGlossary, classifyCandidates, clearProviderKeys, fixGlossary, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateSelectionText, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
 
@@ -218,6 +218,12 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       const settings = await readSettings();
       return { enabled: sender.tab !== undefined && settings.selectionAutoTranslate, provider: settings.translationProvider, targetLanguage: settings.targetLanguage };
     }
+    case "BUILD_GLOSSARY":
+      requireExtensionPage(sender);
+      return buildGlossary(message.request, message.pageText === undefined ? undefined : { pageTitle: message.pageTitle ?? "", pageText: message.pageText });
+    case "FIX_GLOSSARY":
+      requireExtensionPage(sender);
+      return fixGlossary(message.sourceText, message.translatedText, message.feedback);
     case "OPEN_SIDE_PANEL":
       return undefined;
   }

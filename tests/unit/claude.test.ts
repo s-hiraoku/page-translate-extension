@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchSegments, buildPageMessage, readTranslations, sameTags } from "../../src/background/claude";
+import { batchSegments, buildPageMessage, readEntries, readTranslations, sameTags } from "../../src/background/claude";
 import type { CandidateSegment } from "../../src/shared/types";
 
 function segment(id: number, sourceHtml: string): CandidateSegment {
@@ -74,5 +74,25 @@ describe("sameTags", () => {
     expect(sameTags("Plain text.", '<img src="x">テキスト。')).toBe(false);
     expect(sameTags('<a href="/x">x</a>', '<a href="/y">x</a>')).toBe(false);
     expect(sameTags('<a href="/a b">x</a>', '<a href="/a  b">x</a>')).toBe(false);
+  });
+});
+
+describe("buildPageMessage glossary", () => {
+  it("sends only the glossary terms the batch uses", () => {
+    const glossary = [{ term: "deploy", translation: "デプロイ" }, { term: "merge", translation: "マージ" }];
+    const message = JSON.parse(buildPageMessage([segment(1, "Deploy the app.")], "JA", { pageTitle: "", pageText: "" }, glossary));
+    expect(message.glossary).toEqual([{ term: "deploy", translation: "デプロイ" }]);
+    expect(JSON.parse(buildPageMessage([segment(1, "Hello.")], "JA", { pageTitle: "", pageText: "" }, glossary)).glossary).toBeUndefined();
+  });
+});
+
+describe("readEntries", () => {
+  it("keeps each entry on one line and drops incomplete ones", () => {
+    const answer = JSON.stringify({ entries: [{ term: "pull\nrequest", translation: "プル=リクエスト" }, { term: "x", translation: "" }] });
+    expect(readEntries(answer)).toEqual([{ term: "pull request", translation: "プル リクエスト" }]);
+  });
+
+  it("fails on an answer without entries", () => {
+    expect(() => readEntries("{}")).toThrow("用語集を受け取れません");
   });
 });
