@@ -215,6 +215,9 @@ h1, h2, h3, p { margin: 0; }
 
 .review-action { margin: -2px 14px 12px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--warn-line); border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; font-weight: 600; }
 .review-action:hover { filter: brightness(.97); }
+.fix-open { margin: -4px 10px 8px; }
+.fix-form { margin: 0 14px 12px; display: grid; gap: 6px; }
+.fix-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Keyboard shortcut shown inside a button; takes its colors from the button. */
 .button-kbd { margin-left: 2px; padding: 0 6px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 5px; background: color-mix(in srgb, currentColor 8%, transparent); color: inherit; opacity: .78; font: 500 10.5px/18px var(--mono); }

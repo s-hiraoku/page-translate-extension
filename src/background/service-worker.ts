@@ -7,7 +7,7 @@ import type {
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type ExtensionSettings, type PanelCommandRequest } from "../shared/types";
 import { CONSENT_NOTE, createSelectionTranslator, type SelectionOutcome } from "./selection";
 import { settingsOnInstall } from "../shared/effective-settings";
-import { classifyCandidates, clearProviderKeys, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateText } from "./providers";
+import { buildGlossary, classifyCandidates, clearProviderKeys, fixGlossary, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateSelectionText, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
 
@@ -27,7 +27,7 @@ void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 const translateSelection = createSelectionTranslator({
   settings: readSettings,
   hasConsent,
-  translate: translateText,
+  translate: translateSelectionText,
 });
 
 /** Whether the data-use consent is on record, as last seen; null until read. Lets a shortcut open the panel before any await. */
@@ -167,7 +167,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       return providerStatus();
     case "SAVE_PROVIDER_KEYS":
       requireExtensionPage(sender);
-      return saveProviderKeys(message.typesafeApiKey, message.deeplApiKey);
+      return saveProviderKeys(message.keys);
     case "CLEAR_PROVIDER_KEYS":
       requireExtensionPage(sender);
       return clearProviderKeys();
@@ -188,7 +188,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
         articleTitle: message.segments.find((segment) => segment.isArticleTitle)?.sourceText ?? "",
       });
     case "TRANSLATE_SEGMENTS":
-      return translateSegments(message.segments, message.targetLanguage);
+      return translateSegments(message.segments, message.targetLanguage, message.pageTitle, message.pageText);
     // The writing check sends the reader's own text: only the side panel may ask for it.
     case "COMPOSE_TRANSLATE":
       requireExtensionPage(sender);
@@ -196,13 +196,13 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     case "COMPOSE_REPHRASE":
       requireExtensionPage(sender);
       return rephraseText(message.text, message.targetLang, message.style);
-    // Selection translation reads the page's selection and sends it to DeepL: only the side panel may ask.
+    // Selection translation reads the page's selection and sends it to DeepL or Claude: only the side panel may ask.
     case "READ_SELECTION":
       requireExtensionPage(sender);
       return sendToActiveTab({ type: "READ_SELECTION" });
     case "TRANSLATE_SELECTION":
       requireExtensionPage(sender);
-      return translateText(message.text, message.targetLang);
+      return translateSelectionText(message.text, message.targetLang);
     case "SELECTION_RESULT":
       requireExtensionPage(sender);
       return sendToActiveTab(message);
@@ -218,6 +218,12 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       const settings = await readSettings();
       return { enabled: sender.tab !== undefined && settings.selectionAutoTranslate, provider: settings.translationProvider, targetLanguage: settings.targetLanguage };
     }
+    case "BUILD_GLOSSARY":
+      requireExtensionPage(sender);
+      return buildGlossary(message.request, message.pageText === undefined ? undefined : { pageTitle: message.pageTitle ?? "", pageText: message.pageText });
+    case "FIX_GLOSSARY":
+      requireExtensionPage(sender);
+      return fixGlossary(message.sourceText, message.translatedText, message.feedback);
     case "OPEN_SIDE_PANEL":
       return undefined;
   }

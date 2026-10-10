@@ -3,7 +3,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "Page Translate",
-  version: "1.8.1",
+  version: "1.10.1",
   description: "__MSG_extDescription__",
   default_locale: "en",
   minimum_chrome_version: "116",
@@ -15,6 +15,7 @@ export default defineManifest({
     128: "icons/icon128.png",
   },
   host_permissions: [
+    "https://api.anthropic.com/*",
     "https://api.typesafe.ai/*",
     "https://api-free.deepl.com/*",
     "https://api.deepl.com/*",
