@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { glossaryFor, type GlossaryEntry } from "../shared/glossary";
-import { CLAUDE_CONTEXT_CHARS, type CandidateSegment, type ComposeLanguage, type TargetLanguage } from "../shared/types";
+import { CLAUDE_CONTEXT_CHARS, type CandidateSegment, type ClaudeModel, type ComposeLanguage, type TargetLanguage } from "../shared/types";
 
 /**
  * Claude as the translator. Unlike DeepL, which sees each passage with at most a few thousand
@@ -8,7 +8,8 @@ import { CLAUDE_CONTEXT_CHARS, type CandidateSegment, type ComposeLanguage, type
  * and tone stay the same from the first heading to the last paragraph.
  */
 
-export const CLAUDE_MODEL = "claude-opus-5-5";
+/** The reader's key and the model they chose in Settings. */
+export type ClaudeAccess = { apiKey: string; model: ClaudeModel };
 /** Passages are sent in batches no larger than this (HTML characters), several at a time. */
 const BATCH_CHARS = 12_000;
 const BATCH_COUNT = 40;
@@ -61,7 +62,7 @@ export type PageContext = { pageTitle: string; pageText: string };
 
 /** Translated HTML for each segment, in the order given. */
 export async function translateSegmentsWithClaude(
-  apiKey: string,
+  access: ClaudeAccess,
   segments: CandidateSegment[],
   targetLanguage: TargetLanguage,
   page: PageContext,
@@ -75,7 +76,7 @@ export async function translateSegmentsWithClaude(
     while (next < batches.length) {
       const index = next++;
       const batch = batches[index]!;
-      const answer = await askClaude(apiKey, PAGE_SYSTEM, PAGE_SCHEMA, buildPageMessage(batch, targetLanguage, page, glossary));
+      const answer = await askClaude(access, PAGE_SYSTEM, PAGE_SCHEMA, buildPageMessage(batch, targetLanguage, page, glossary));
       results[index] = readTranslations(batch.map((segment) => segment.sourceHtml), answer);
     }
   }));
@@ -83,9 +84,9 @@ export async function translateSegmentsWithClaude(
 }
 
 /** Plain-text translation of a selection. */
-export async function translateTextWithClaude(apiKey: string, text: string, targetLang: ComposeLanguage, glossary: GlossaryEntry[] = []): Promise<string> {
+export async function translateTextWithClaude(access: ClaudeAccess, text: string, targetLang: ComposeLanguage, glossary: GlossaryEntry[] = []): Promise<string> {
   const used = glossaryFor(glossary, text, targetLang !== "JA");
-  const answer = await askClaude(apiKey, TEXT_SYSTEM, TEXT_SCHEMA, JSON.stringify({
+  const answer = await askClaude(access, TEXT_SYSTEM, TEXT_SCHEMA, JSON.stringify({
     target_language: languageName(targetLang),
     ...(used.length > 0 ? { glossary: used } : {}),
     passage: text,
@@ -139,10 +140,10 @@ const GLOSSARY_FIX_SYSTEM = [
 
 /** New glossary entries for what the reader described, optionally from the open page's terms. */
 export async function buildGlossaryWithClaude(
-  apiKey: string,
+  access: ClaudeAccess,
   input: { request: string; page?: PageContext; current: GlossaryEntry[] },
 ): Promise<GlossaryEntry[]> {
-  const answer = await askClaude(apiKey, GLOSSARY_BUILD_SYSTEM, GLOSSARY_SCHEMA, JSON.stringify({
+  const answer = await askClaude(access, GLOSSARY_BUILD_SYSTEM, GLOSSARY_SCHEMA, JSON.stringify({
     reader_wishes: input.request.slice(0, 2_000),
     ...(input.page ? { page_title: input.page.pageTitle.slice(0, 200), page_text: input.page.pageText.slice(0, 20_000) } : {}),
     current_glossary_terms: input.current.map((entry) => entry.term).slice(0, 500),
@@ -152,10 +153,10 @@ export async function buildGlossaryWithClaude(
 
 /** Glossary entries to add or change so that the passage's translation fixes the reader's complaint. */
 export async function fixGlossaryWithClaude(
-  apiKey: string,
+  access: ClaudeAccess,
   input: { sourceText: string; translatedText: string; feedback: string; glossary: GlossaryEntry[] },
 ): Promise<GlossaryEntry[]> {
-  const answer = await askClaude(apiKey, GLOSSARY_FIX_SYSTEM, GLOSSARY_SCHEMA, JSON.stringify({
+  const answer = await askClaude(access, GLOSSARY_FIX_SYSTEM, GLOSSARY_SCHEMA, JSON.stringify({
     passage: input.sourceText.slice(0, 5_000),
     translation: input.translatedText.slice(0, 5_000),
     complaint: input.feedback.slice(0, 1_000),
@@ -259,18 +260,18 @@ function languageName(target: TargetLanguage | ComposeLanguage): string {
   return "American English";
 }
 
-async function askClaude(apiKey: string, system: string, schema: object, content: string): Promise<string> {
+async function askClaude({ apiKey, model }: ClaudeAccess, system: string, schema: object, content: string): Promise<string> {
   // The key is the reader's own and stays in this extension's service worker; it never reaches a page.
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, timeout: 180_000, maxRetries: 1 });
   let response: Anthropic.Beta.BetaMessage;
   try {
     response = await client.beta.messages.stream({
-      model: CLAUDE_MODEL,
+      model,
       max_tokens: 32_000,
       // Translation needs little deliberation: low effort keeps the wait and the cost down.
       output_config: { effort: "low", format: { type: "json_schema", schema: schema as Record<string, unknown> } },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
+      // Sonnet and Opus retry a declined request on another model; Haiku has no such fallback.
+      ...(model === "claude-haiku-5-5" ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
       system,
       messages: [{ role: "user", content }],
     }).finalMessage();

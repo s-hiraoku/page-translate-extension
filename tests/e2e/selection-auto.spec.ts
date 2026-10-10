@@ -25,11 +25,11 @@ test.describe("translating as text is selected, with the panel closed", () => {
     await page.setViewportSize({ width: 1000, height: 640 });
   });
 
-  const setAuto = (driver: Page, enabled: boolean, consent: boolean, provider = "deepl") => driver.evaluate(async ({ enabled, consent, provider, SETTINGS_KEY, CONSENT_KEY }) => {
+  const setAuto = (driver: Page, enabled: boolean, consent: boolean, provider = "deepl", claudeModel = "claude-haiku-5-5") => driver.evaluate(async ({ enabled, consent, provider, claudeModel, SETTINGS_KEY, CONSENT_KEY }) => {
     const stored = await chrome.storage.local.get(SETTINGS_KEY);
-    await chrome.storage.local.set({ [SETTINGS_KEY]: { ...(stored[SETTINGS_KEY] ?? {}), selectionAutoTranslate: enabled, translationProvider: provider } });
+    await chrome.storage.local.set({ [SETTINGS_KEY]: { ...(stored[SETTINGS_KEY] ?? {}), selectionAutoTranslate: enabled, translationProvider: provider, claudeModel } });
     if (consent) await chrome.storage.local.set({ [CONSENT_KEY]: 3 });
-  }, { enabled, consent, provider, SETTINGS_KEY, CONSENT_KEY });
+  }, { enabled, consent, provider, claudeModel, SETTINGS_KEY, CONSENT_KEY });
 
   test("without consent, the tooltip says what to do and nothing is sent", async ({ page, driver, send }) => {
     await page.goto("/fixtures/article.html");
@@ -130,7 +130,7 @@ test.describe("translating as text is selected, with the panel closed", () => {
   });
 
   test("translates with Claude when Claude is chosen: the request carries the key and the tooltip shows the answer", async ({ page, context, driver, send }) => {
-    const requests: Array<{ headers: Record<string, string>; body: { model?: string; messages?: Array<{ content: string }> } }> = [];
+    const requests: Array<{ headers: Record<string, string>; body: { model?: string; fallbacks?: unknown; messages?: Array<{ content: string }> } }> = [];
     await context.route("https://api.anthropic.com/**", (route) => {
       requests.push({ headers: route.request().headers(), body: route.request().postDataJSON() });
       route.fulfill({ status: 200, contentType: "text/event-stream", body: claudeStream(JSON.stringify({ text: "潮汐とは、海面の規則的な上昇と下降です。" })) });
@@ -145,7 +145,28 @@ test.describe("translating as text is selected, with the panel closed", () => {
 
     await expect.poll(async () => (await tooltipText(page)) ?? "").toContain("潮汐とは、海面の規則的な上昇と下降です。");
     expect(requests[0]?.headers["x-api-key"]).toBe("sk-ant-test");
-    expect(requests[0]?.body.model).toBe("claude-opus-5-5");
+    expect(requests[0]?.body.model).toBe("claude-haiku-5-5");
+    // Haiku has no server-side fallback, so none is asked for.
+    expect(requests[0]?.body.fallbacks).toBeUndefined();
+  });
+
+  test("uses the Claude model chosen in Settings, with the refusal fallback on Sonnet and Opus", async ({ page, context, driver, send }) => {
+    const bodies: Array<{ model?: string; fallbacks?: unknown }> = [];
+    await context.route("https://api.anthropic.com/**", (route) => {
+      bodies.push(route.request().postDataJSON());
+      route.fulfill({ status: 200, contentType: "text/event-stream", body: claudeStream(JSON.stringify({ text: "潮汐とは、海面の規則的な上昇と下降です。" })) });
+    });
+    await page.goto("/fixtures/article.html");
+    await send({ type: "UPDATE_FOCUS_ANCHOR", anchor: { screenY: 0 } });
+    await driver.evaluate(() => chrome.runtime.sendMessage({ type: "SAVE_PROVIDER_KEYS", keys: { anthropicApiKey: "sk-ant-test" } }));
+    await setAuto(driver, true, true, "claude", "claude-sonnet-5-5");
+    await page.waitForTimeout(500);
+
+    await selectWithMouse(page);
+
+    await expect.poll(async () => (await tooltipText(page)) ?? "").toContain("潮汐とは、海面の規則的な上昇と下降です。");
+    expect(bodies[0]?.model).toBe("claude-sonnet-5-5");
+    expect(bodies[0]?.fallbacks).toBe("default");
   });
 
   test("shows nothing when the setting is off, even if the page was told it was on", async ({ page, send }) => {
@@ -177,7 +198,7 @@ test.describe("translating as text is selected, with the panel closed", () => {
 /** A Messages API stream (server-sent events) whose only text is `text`. */
 function claudeStream(text: string): string {
   const events: Array<[string, object]> = [
-    ["message_start", { type: "message_start", message: { id: "msg_test", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } }],
+    ["message_start", { type: "message_start", message: { id: "msg_test", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } }],
     ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
     ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }],
     ["content_block_stop", { type: "content_block_stop", index: 0 }],

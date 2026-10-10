@@ -103,11 +103,15 @@ export interface ExtensionSettings {
   translationProvider: TranslationProvider;
   /** How page select mode picks a card: clicking the text, or resting the pointer on it. */
   pageSelectTrigger: PageSelectTrigger;
+  /** The Claude model that translates when Claude is the translation service. Haiku costs the least. */
+  claudeModel: ClaudeModel;
 }
 
 export type PageSelectTrigger = "click" | "hover";
 
 export type TranslationProvider = "deepl" | "chrome" | "claude";
+
+export type ClaudeModel = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
 
 export const SETTINGS_KEY = "pageTranslateSettings";
 export const PROVIDER_KEYS_KEY = "pageTranslateProviderKeys";
@@ -128,6 +132,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   selectionAutoTranslate: false,
   translationProvider: "chrome",
   pageSelectTrigger: "click",
+  claudeModel: "claude-haiku-5-5",
 };
 
 export type ExtensionMessage =
