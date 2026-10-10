@@ -1443,41 +1443,66 @@ export function SidePanel() {
           </button>
           <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）へ直接送信します。</p>
 
-          <h3 className="settings-section">用語集（Claude）</h3>
-          <p className="field-hint">翻訳サービスがClaudeのとき、用語集の訳語で翻訳します。翻訳する文章に出てくる用語だけをClaudeに送ります。</p>
-          <label className="field-label" htmlFor="glossary-request">AIで作る</label>
-          <textarea
-            id="glossary-request"
-            className="field compose-area short"
-            value={glossaryRequest}
-            onChange={(event) => setGlossaryRequest(event.target.value)}
-            placeholder={"どんな文章を、どう訳したいか\n例：Reactの技術記事。用語はカタカナ、APIやライブラリの名前は英語のまま"}
-          />
-          <label className="check-row">
-            <input type="checkbox" checked={glossaryUsePage} onChange={(event) => setGlossaryUsePage(event.target.checked)} />
-            <span>開いているページの専門用語も拾う<small>ページの本文もClaudeへ送信されます。</small></span>
-          </label>
-          <button className="button primary block" type="button" onClick={() => void buildGlossary()} disabled={glossaryBusy || (!glossaryRequest.trim() && !glossaryUsePage)} aria-busy={glossaryBusy}>
-            {glossaryBusy ? <span className="spinner" aria-hidden="true" /> : <Icon name="pen" />}
-            {glossaryBusy ? "用語集を作っています…" : "AIで用語集を作る"}
-          </button>
-          <label className="field-label" htmlFor="glossary">用語集の中身</label>
-          <p className="field-hint">1行に「用語 = 訳語」の形です。手で直したり、表計算ソフトから2列を貼り付けたりもできます。#で始まる行はメモです。</p>
-          <textarea
-            id="glossary"
-            className="field compose-area"
-            spellCheck={false}
-            value={glossary}
-            onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
-            placeholder={"pull request = プルリクエスト\ndeploy = デプロイ"}
-          />
-          <button className="text-button" type="button" onClick={() => { setGlossary((current) => mergeGlossary(current, PROGRAMMING_GLOSSARY)); setGlossaryNote(""); }}>
-            <Icon name="pen" />プログラミング用語を追加
-          </button>
-          <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
-            用語集を保存
-          </button>
-          {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
+          {/* An advanced setting: folded until the reader opens it, so the basic settings stay simple. */}
+          <div className="settings-heading">
+            <h3 className="settings-section" id="glossary-label">
+              <button
+                type="button"
+                className="section-toggle"
+                aria-expanded={help.isOpen("glossary-panel")}
+                aria-controls="glossary-panel"
+                onClick={() => help.toggle("glossary-panel")}
+              >
+                <Icon name="back" className={`section-chevron ${help.isOpen("glossary-panel") ? "open" : ""}`} />
+                用語集（Claude）
+                <span className="badge missing">上級者向け</span>
+              </button>
+            </h3>
+            <HelpToggle id="glossary-label" label="用語集（Claude）" help={help} />
+          </div>
+          <HelpText id="glossary-label" help={help}>
+            翻訳サービスがClaudeのとき、用語集の訳語で翻訳します。翻訳する文章に出てくる用語だけをClaudeに送ります。どんな文章をどう訳したいかを書くと、AIが用語集を作ります。翻訳カードの「この訳を直す」からも直せます。
+          </HelpText>
+          <div id="glossary-panel" hidden={!help.isOpen("glossary-panel")}>
+            <label className="field-label" htmlFor="glossary-request">AIで作る</label>
+            <textarea
+              id="glossary-request"
+              className="field compose-area short"
+              value={glossaryRequest}
+              onChange={(event) => setGlossaryRequest(event.target.value)}
+              placeholder={"どんな文章を、どう訳したいか\n例：Reactの技術記事。用語はカタカナ、APIやライブラリの名前は英語のまま"}
+            />
+            <label className="check-row">
+              <input type="checkbox" checked={glossaryUsePage} onChange={(event) => setGlossaryUsePage(event.target.checked)} />
+              <span>開いているページの専門用語も拾う<small>ページの本文もClaudeへ送信されます。</small></span>
+            </label>
+            <button className="button primary block" type="button" onClick={() => void buildGlossary()} disabled={glossaryBusy || (!glossaryRequest.trim() && !glossaryUsePage)} aria-busy={glossaryBusy}>
+              {glossaryBusy ? <span className="spinner" aria-hidden="true" /> : <Icon name="pen" />}
+              {glossaryBusy ? "用語集を作っています…" : "AIで用語集を作る"}
+            </button>
+            <div className="field-heading">
+              <label className="field-label" htmlFor="glossary" id="glossary-content-label">用語集の中身</label>
+              <HelpToggle id="glossary-content-label" label="用語集の中身" help={help} />
+            </div>
+            <HelpText id="glossary-content-label" help={help}>
+              1行に「用語 = 訳語」の形です。手で直したり、表計算ソフトから2列を貼り付けたりもできます。#で始まる行はメモです。
+            </HelpText>
+            <textarea
+              id="glossary"
+              className="field compose-area"
+              spellCheck={false}
+              value={glossary}
+              onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
+              placeholder={"pull request = プルリクエスト\ndeploy = デプロイ"}
+            />
+            <button className="text-button" type="button" onClick={() => { setGlossary((current) => mergeGlossary(current, PROGRAMMING_GLOSSARY)); setGlossaryNote(""); }}>
+              <Icon name="pen" />プログラミング用語を追加
+            </button>
+            <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
+              用語集を保存
+            </button>
+            {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
+          </div>
         </section>
       ) : (
         <>
@@ -1766,26 +1791,37 @@ type HelpState = { isOpen: (id: string) => boolean; toggle: (id: string) => void
 
 /** A settings heading whose explanation stays folded until the reader asks for it with the ⓘ button. */
 function SettingHeading({ id, label, help, children }: { id: string; label: string; help: HelpState; children: React.ReactNode }) {
-  const open = help.isOpen(id);
   return (
     <>
       <div className="settings-heading">
         <h3 className="settings-section" id={id}>{label}</h3>
-        <button
-          type="button"
-          className={`help-toggle ${open ? "active" : ""}`}
-          aria-expanded={open}
-          aria-controls={`${id}-help`}
-          aria-label={`${label}の説明`}
-          title={open ? "説明を閉じる" : "説明を表示"}
-          onClick={() => help.toggle(id)}
-        >
-          <Icon name="info" />
-        </button>
+        <HelpToggle id={id} label={label} help={help} />
       </div>
-      <p className="field-hint help-text" id={`${id}-help`} hidden={!open}>{children}</p>
+      <HelpText id={id} help={help}>{children}</HelpText>
     </>
   );
+}
+
+/** The "i" button that unfolds a setting's explanation. */
+function HelpToggle({ id, label, help }: { id: string; label: string; help: HelpState }) {
+  const open = help.isOpen(id);
+  return (
+    <button
+      type="button"
+      className={`help-toggle ${open ? "active" : ""}`}
+      aria-expanded={open}
+      aria-controls={`${id}-help`}
+      aria-label={`${label}の説明`}
+      title={open ? "説明を閉じる" : "説明を表示"}
+      onClick={() => help.toggle(id)}
+    >
+      <Icon name="info" />
+    </button>
+  );
+}
+
+function HelpText({ id, help, children }: { id: string; help: HelpState; children: React.ReactNode }) {
+  return <p className="field-hint help-text" id={`${id}-help`} hidden={!help.isOpen(id)}>{children}</p>;
 }
 
 function deeplEndpointHint(endpoint: DeepLEndpoint, plan: DeepLPlan | null): string {

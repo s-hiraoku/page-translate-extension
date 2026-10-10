@@ -657,6 +657,7 @@ test.describe("translating with Claude", () => {
       pageTranslateCache: { version: 1, pages: { "https://example.com/|JA|jev|claude": claudePage, "https://example.com/|JA|jev": claudePage } },
     } });
     await page.getByRole("button", { name: "設定を開く" }).click();
+    await page.getByRole("button", { name: /^用語集（Claude）.*上級者向け$/ }).click();
 
     const glossary = page.getByRole("textbox", { name: "用語集の中身" });
     await expect(glossary).toHaveValue("deploy = 配置\n");
@@ -672,9 +673,29 @@ test.describe("translating with Claude", () => {
     expect(Object.keys((stored.pageTranslateCache as { pages: object }).pages)).toEqual(["https://example.com/|JA|jev"]);
   });
 
+  test("keeps the glossary folded as an advanced setting, with its explanations behind info buttons", async ({ page }) => {
+    await openPanel(page);
+    await page.getByRole("button", { name: "設定を開く" }).click();
+
+    const toggle = page.getByRole("button", { name: /^用語集（Claude）.*上級者向け$/ });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("textbox", { name: "用語集の中身" })).toBeHidden();
+    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります")).toBeHidden();
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("textbox", { name: "用語集の中身" })).toBeVisible();
+    await expect(page.getByText("1行に「用語 = 訳語」の形です")).toBeHidden();
+    await page.getByRole("button", { name: "用語集の中身の説明" }).click();
+    await expect(page.getByText("1行に「用語 = 訳語」の形です")).toBeVisible();
+    await page.getByRole("button", { name: "用語集（Claude）の説明" }).click();
+    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります")).toBeVisible();
+  });
+
   test("builds glossary entries with Claude from the reader's wishes and the open page, keeping the reader's own lines", async ({ page }) => {
     await openPanel(page, { stored: { pageTranslateGlossary: "deploy = 配置\n" } });
     await page.getByRole("button", { name: "設定を開く" }).click();
+    await page.getByRole("button", { name: /^用語集（Claude）.*上級者向け$/ }).click();
 
     await page.getByRole("textbox", { name: "AIで作る" }).fill("Webアプリの技術記事。用語はカタカナ");
     await page.getByText("開いているページの専門用語も拾う").click();
