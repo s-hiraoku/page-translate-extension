@@ -170,10 +170,10 @@ export function readEntries(answer: string): GlossaryEntry[] {
   try {
     parsed = JSON.parse(answer);
   } catch {
-    throw new Error("Claudeから読み取れない用語集が返されました。");
+    throw new Error("Claudeから読み取れない辞書が返されました。");
   }
   const list = typeof parsed === "object" && parsed !== null ? (parsed as { entries?: unknown }).entries : undefined;
-  if (!Array.isArray(list)) throw new Error("Claudeから用語集を受け取れませんでした。");
+  if (!Array.isArray(list)) throw new Error("Claudeから辞書を受け取れませんでした。");
   return list.flatMap((item: { term?: unknown; translation?: unknown }) => {
     // One line per entry: a line break or "=" inside would split it when the glossary is read back.
     const clean = (value: unknown) => typeof value === "string" ? value.replace(/[\r\n\t=]+/g, " ").trim() : "";

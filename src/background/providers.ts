@@ -194,7 +194,7 @@ async function translateSegmentsByClaude(
   validateSegments(segments);
   // Without the page's text from the panel, the passages themselves, in reading order, are the page.
   const context = pageText ?? [...segments].sort((a, b) => a.order - b.order).map((segment) => segment.sourceText).join("\n");
-  const html = await translateSegmentsWithClaude(access, segments, targetLanguage, { pageTitle, pageText: context }, await readGlossary());
+  const html = await translateSegmentsWithClaude(access, segments, targetLanguage, { pageTitle, pageText: context }, await readGlossary(true));
   return { translations: segments.map((segment, index) => ({ id: segment.id, translatedHtml: html[index] ?? "", translatedText: htmlToText(html[index] ?? "") })) };
 }
 
@@ -204,13 +204,13 @@ export async function translateSelectionText(text: string, targetLang: ComposeLa
   if (settings.translationProvider !== "claude") return translateText(text, targetLang);
   if (!keys.anthropicApiKey) throw new Error("設定画面でClaudeのAPIキーを登録してください。");
   validateComposeText(text);
-  return { text: await translateTextWithClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, text, targetLang, await readGlossary()) };
+  return { text: await translateTextWithClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, text, targetLang, await readGlossary(true)) };
 }
 
 /** New glossary entries Claude suggests for the reader's wishes (and the open page's terms, when given). */
 export async function buildGlossary(request: string, page?: { pageTitle: string; pageText: string }): Promise<{ entries: GlossaryEntry[] }> {
   const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
-  if (!keys.anthropicApiKey) throw new Error("用語集を作るには、設定画面でClaudeのAPIキーを登録してください。");
+  if (!keys.anthropicApiKey) throw new Error("辞書を作るには、設定画面でClaudeのAPIキーを登録してください。");
   if (!request.trim() && !page) throw new Error("どんな文章を、どう訳したいかを書いてください。");
   return { entries: await buildGlossaryWithClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, { request, page, current: await readGlossary() }) };
 }
@@ -218,12 +218,14 @@ export async function buildGlossary(request: string, page?: { pageTitle: string;
 /** Glossary entries Claude suggests so that a translation the reader disliked comes out right. */
 export async function fixGlossary(sourceText: string, translatedText: string, feedback: string): Promise<{ entries: GlossaryEntry[] }> {
   const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
-  if (!keys.anthropicApiKey) throw new Error("用語集を直すには、設定画面でClaudeのAPIキーを登録してください。");
+  if (!keys.anthropicApiKey) throw new Error("辞書を直すには、設定画面でClaudeのAPIキーを登録してください。");
   if (!feedback.trim()) throw new Error("どう直したいかを書いてください。");
   return { entries: await fixGlossaryWithClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, { sourceText, translatedText, feedback, glossary: await readGlossary() }) };
 }
 
-async function readGlossary(): Promise<GlossaryEntry[]> {
+/** `forTranslation`: empty while the reader has the dictionary turned off. */
+async function readGlossary(forTranslation = false): Promise<GlossaryEntry[]> {
+  if (forTranslation && !(await readSettings()).useGlossary) return [];
   const stored = await chrome.storage.local.get(GLOSSARY_KEY);
   const text = stored[GLOSSARY_KEY];
   return typeof text === "string" ? parseGlossary(text) : [];

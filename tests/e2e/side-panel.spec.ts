@@ -657,14 +657,14 @@ test.describe("translating with Claude", () => {
       pageTranslateCache: { version: 1, pages: { "https://example.com/|JA|jev|claude": claudePage, "https://example.com/|JA|jev": claudePage } },
     } });
     await page.getByRole("button", { name: "設定を開く" }).click();
-    await page.getByRole("button", { name: /^用語集（Claude）.*上級者向け$/ }).click();
+    await page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ }).click();
 
-    const glossary = page.getByRole("textbox", { name: "用語集の中身" });
+    const glossary = page.getByRole("textbox", { name: "辞書の中身" });
     await expect(glossary).toHaveValue("deploy = 配置\n");
     await page.getByRole("button", { name: "プログラミング用語を追加" }).click();
     await expect(glossary).toHaveValue(/pull request = プルリクエスト/);
     await expect(glossary).not.toHaveValue(/deploy = デプロイ/);
-    await page.getByRole("button", { name: "用語集を保存" }).click();
+    await page.getByRole("button", { name: "辞書を保存" }).click();
     await expect(page.getByText(/語を保存しました/)).toBeVisible();
 
     const read = (key: string) => page.evaluate(async (name) => (await (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, unknown>> } } } }).chrome.storage.local.get(name))[name], key);
@@ -677,32 +677,51 @@ test.describe("translating with Claude", () => {
     await openPanel(page);
     await page.getByRole("button", { name: "設定を開く" }).click();
 
-    const toggle = page.getByRole("button", { name: /^用語集（Claude）.*上級者向け$/ });
+    const toggle = page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(page.getByRole("textbox", { name: "用語集の中身" })).toBeHidden();
-    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります")).toBeHidden();
+    await expect(page.getByRole("textbox", { name: "辞書の中身" })).toBeHidden();
+    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります）")).toBeHidden();
 
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByRole("textbox", { name: "用語集の中身" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "辞書の中身" })).toBeVisible();
     await expect(page.getByText("1行に「用語 = 訳語」の形です")).toBeHidden();
-    await page.getByRole("button", { name: "用語集の中身の説明" }).click();
+    await page.getByRole("button", { name: "辞書の中身の説明" }).click();
     await expect(page.getByText("1行に「用語 = 訳語」の形です")).toBeVisible();
-    await page.getByRole("button", { name: "用語集（Claude）の説明" }).click();
-    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります")).toBeVisible();
+    await page.getByRole("button", { name: "辞書（Claude）の説明" }).click();
+    await expect(page.getByText("翻訳する文章に出てくる用語だけをClaudeに送ります）")).toBeVisible();
+  });
+
+  test("turns translating with the dictionary off and on, dropping Claude's cached pages", async ({ page }) => {
+    const claudePage = { savedAt: Date.now(), usedAt: Date.now(), hashes: [], decisions: {}, translations: {} };
+    await openPanel(page, { stored: { pageTranslateCache: { version: 1, pages: { "https://example.com/|JA|jev|claude": claudePage } } } });
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ }).click();
+
+    const use = page.getByRole("radiogroup", { name: "この辞書で翻訳する" });
+    await expect(use.getByRole("radio", { name: "使う", exact: true })).toHaveAttribute("aria-checked", "true");
+    await use.getByRole("radio", { name: "使わない" }).click();
+    await expect(use.getByRole("radio", { name: "使わない" })).toHaveAttribute("aria-checked", "true");
+
+    const stored = await page.evaluate(async () => {
+      const local = (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, unknown>> } } } }).chrome.storage.local;
+      return { settings: (await local.get("pageTranslateSettings")).pageTranslateSettings, cache: (await local.get("pageTranslateCache")).pageTranslateCache };
+    });
+    expect(stored.settings).toMatchObject({ useGlossary: false });
+    expect(Object.keys((stored.cache as { pages: object }).pages)).toEqual([]);
   });
 
   test("builds glossary entries with Claude from the reader's wishes and the open page, keeping the reader's own lines", async ({ page }) => {
     await openPanel(page, { stored: { pageTranslateGlossary: "deploy = 配置\n" } });
     await page.getByRole("button", { name: "設定を開く" }).click();
-    await page.getByRole("button", { name: /^用語集（Claude）.*上級者向け$/ }).click();
+    await page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ }).click();
 
     await page.getByRole("textbox", { name: "AIで作る" }).fill("Webアプリの技術記事。用語はカタカナ");
     await page.getByText("開いているページの専門用語も拾う").click();
-    await page.getByRole("button", { name: "AIで用語集を作る" }).click();
+    await page.getByRole("button", { name: "AIで辞書を作る" }).click();
 
     await expect(page.getByText("AIが1語を追加して保存しました。")).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "用語集の中身" })).toHaveValue("deploy = 配置\n\n# AIが作成：Webアプリの技術記事。用語はカタカナ\ndashboard = ダッシュボード\n");
+    await expect(page.getByRole("textbox", { name: "辞書の中身" })).toHaveValue("deploy = 配置\n\n# AIが作成：Webアプリの技術記事。用語はカタカナ\ndashboard = ダッシュボード\n");
     const build = (await sent(page)).find((message) => message.type === "BUILD_GLOSSARY") as { request?: string; pageText?: string } | undefined;
     expect(build?.request).toBe("Webアプリの技術記事。用語はカタカナ");
     expect(build?.pageText).toBe("We plan to ship version 2.0 next month.");
@@ -714,9 +733,9 @@ test.describe("translating with Claude", () => {
     await page.locator('[data-entry-id="segment-2"] .entry-main').click();
     await page.getByRole("button", { name: "この訳を直す" }).click();
     await page.getByRole("textbox", { name: "どう直したいか" }).fill("dashboardは「管理画面」に");
-    await page.getByRole("button", { name: "用語集を直して訳し直す" }).click();
+    await page.getByRole("button", { name: "辞書を直して訳し直す" }).click();
 
-    await expect(page.getByText("用語集を直して訳し直しました：dashboard = 管理画面")).toBeVisible();
+    await expect(page.getByText("辞書を直して訳し直しました：dashboard = 管理画面")).toBeVisible();
     const messages = await sent(page);
     const fix = messages.find((message) => message.type === "FIX_GLOSSARY") as { sourceText?: string; feedback?: string } | undefined;
     expect(fix?.feedback).toBe("dashboardは「管理画面」に");

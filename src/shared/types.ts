@@ -105,6 +105,8 @@ export interface ExtensionSettings {
   pageSelectTrigger: PageSelectTrigger;
   /** The Claude model that translates when Claude is the translation service. Haiku costs the least. */
   claudeModel: ClaudeModel;
+  /** Translate with the reader's dictionary (Claude only). The dictionary is kept when this is off. */
+  useGlossary: boolean;
 }
 
 export type PageSelectTrigger = "click" | "hover";
@@ -133,6 +135,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   translationProvider: "chrome",
   pageSelectTrigger: "click",
   claudeModel: "claude-haiku-5-5",
+  useGlossary: true,
 };
 
 export type ExtensionMessage =

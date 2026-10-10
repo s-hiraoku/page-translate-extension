@@ -93,6 +93,6 @@ describe("readEntries", () => {
   });
 
   it("fails on an answer without entries", () => {
-    expect(() => readEntries("{}")).toThrow("用語集を受け取れません");
+    expect(() => readEntries("{}")).toThrow("辞書を受け取れません");
   });
 });

@@ -1036,20 +1036,29 @@ export function SidePanel() {
   /** Saves the glossary text; false when it is too long to keep. */
   async function saveGlossary(text = glossary, note?: string): Promise<boolean> {
     if (text.length > GLOSSARY_MAX_CHARS) {
-      setGlossaryNote(`用語集が長すぎます（${GLOSSARY_MAX_CHARS.toLocaleString()}文字まで）。`);
+      setGlossaryNote(`辞書が長すぎます（${GLOSSARY_MAX_CHARS.toLocaleString()}文字まで）。`);
       return false;
     }
     await chrome.storage.local.set({ [GLOSSARY_KEY]: text });
-    glossaryRevision.current += 1;
-    // Claude's cached pages and selections were translated with the old glossary.
-    for (const key of [...selectionCache.current.keys()]) if (key.startsWith("claude\n")) selectionCache.current.delete(key);
-    const store = await loadCacheStore();
-    await chrome.storage.local.set({ [CACHE_KEY]: withoutProvider(store, "claude") });
-    void refreshCacheInfo();
+    await forgetClaudeTranslations();
     setGlossary(text);
     setSavedGlossary(text);
     setGlossaryNote(note ?? `${parseGlossary(text).length}語を保存しました。`);
     return true;
+  }
+
+  /** Claude's cached pages and selections were translated with the old dictionary (or without it). */
+  async function forgetClaudeTranslations(): Promise<void> {
+    glossaryRevision.current += 1;
+    for (const key of [...selectionCache.current.keys()]) if (key.startsWith("claude\n")) selectionCache.current.delete(key);
+    const store = await loadCacheStore();
+    await chrome.storage.local.set({ [CACHE_KEY]: withoutProvider(store, "claude") });
+    void refreshCacheInfo();
+  }
+
+  async function changeUseGlossary(useGlossary: boolean): Promise<void> {
+    await persistSettings({ ...settingsRef.current, useGlossary });
+    await forgetClaudeTranslations();
   }
 
   /** Claude builds entries from the reader's wishes (and the open page's terms) and they are saved. */
@@ -1087,11 +1096,11 @@ export function SidePanel() {
       const result = await sendMessage<{ entries: GlossaryEntry[] }>({ type: "FIX_GLOSSARY", sourceText: entry.sourceText, translatedText: entry.translatedText ?? "", feedback: fixFeedback });
       const { text, changed } = applyGlossaryEntries(glossary, result.entries, true, "AIが修正");
       if (changed === 0) {
-        setFixNote("用語集で直せるところが見つかりませんでした。書き方を変えてお試しください。");
+        setFixNote("辞書で直せるところが見つかりませんでした。書き方を変えてお試しください。");
         return;
       }
       if (!(await saveGlossary(text))) return;
-      setFixNote(`用語集を直して訳し直しました：${result.entries.map((item) => `${item.term} = ${item.translation}`).join("、")}`);
+      setFixNote(`辞書を直して訳し直しました：${result.entries.map((item) => `${item.term} = ${item.translation}`).join("、")}`);
       setFixFeedback("");
       await translateOne(entry);
     } catch (caught) {
@@ -1454,14 +1463,14 @@ export function SidePanel() {
                 onClick={() => help.toggle("glossary-panel")}
               >
                 <Icon name="back" className={`section-chevron ${help.isOpen("glossary-panel") ? "open" : ""}`} />
-                用語集（Claude）
+                辞書（Claude）
                 <span className="badge missing">上級者向け</span>
               </button>
             </h3>
-            <HelpToggle id="glossary-label" label="用語集（Claude）" help={help} />
+            <HelpToggle id="glossary-label" label="辞書（Claude）" help={help} />
           </div>
           <HelpText id="glossary-label" help={help}>
-            翻訳サービスがClaudeのとき、用語集の訳語で翻訳します。翻訳する文章に出てくる用語だけをClaudeに送ります。どんな文章をどう訳したいかを書くと、AIが用語集を作ります。翻訳カードの「この訳を直す」からも直せます。
+            どんな文章をどう訳したいかを書くと、AIが辞書を作ります。「この辞書で翻訳する」を「使う」にしておくと、翻訳サービスがClaudeのとき、辞書の訳語で翻訳します（翻訳する文章に出てくる用語だけをClaudeに送ります）。訳が気に入らなければ、翻訳カードの「この訳を直す」から辞書を直せます。
           </HelpText>
           <div id="glossary-panel" hidden={!help.isOpen("glossary-panel")}>
             <label className="field-label" htmlFor="glossary-request">AIで作る</label>
@@ -1478,11 +1487,11 @@ export function SidePanel() {
             </label>
             <button className="button primary block" type="button" onClick={() => void buildGlossary()} disabled={glossaryBusy || (!glossaryRequest.trim() && !glossaryUsePage)} aria-busy={glossaryBusy}>
               {glossaryBusy ? <span className="spinner" aria-hidden="true" /> : <Icon name="pen" />}
-              {glossaryBusy ? "用語集を作っています…" : "AIで用語集を作る"}
+              {glossaryBusy ? "辞書を作っています…" : "AIで辞書を作る"}
             </button>
             <div className="field-heading">
-              <label className="field-label" htmlFor="glossary" id="glossary-content-label">用語集の中身</label>
-              <HelpToggle id="glossary-content-label" label="用語集の中身" help={help} />
+              <label className="field-label" htmlFor="glossary" id="glossary-content-label">辞書の中身</label>
+              <HelpToggle id="glossary-content-label" label="辞書の中身" help={help} />
             </div>
             <HelpText id="glossary-content-label" help={help}>
               1行に「用語 = 訳語」の形です。手で直したり、表計算ソフトから2列を貼り付けたりもできます。#で始まる行はメモです。
@@ -1499,8 +1508,25 @@ export function SidePanel() {
               <Icon name="pen" />プログラミング用語を追加
             </button>
             <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
-              用語集を保存
+              辞書を保存
             </button>
+            <div className="field-heading">
+              <span className="field-label" id="use-glossary-label">この辞書で翻訳する</span>
+            </div>
+            <div className="mode-switch" role="radiogroup" aria-labelledby="use-glossary-label">
+              {([true, false] as const).map((value) => (
+                <button
+                  key={String(value)}
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.useGlossary === value}
+                  className={settings.useGlossary === value ? "active" : ""}
+                  onClick={() => void changeUseGlossary(value)}
+                >
+                  {value ? "使う" : "使わない"}
+                </button>
+              ))}
+            </div>
             {glossaryNote && <p className="field-hint" role="status">{glossaryNote}</p>}
           </div>
         </section>
@@ -1612,7 +1638,7 @@ export function SidePanel() {
                           />
                           <div className="fix-actions">
                             <button className="button primary" type="button" onClick={() => void fixTranslation(entry)} disabled={fixBusy || !fixFeedback.trim()} aria-busy={fixBusy}>
-                              {fixBusy ? "直しています…" : "用語集を直して訳し直す"}
+                              {fixBusy ? "直しています…" : "辞書を直して訳し直す"}
                             </button>
                             <button className="text-button" type="button" onClick={() => setFixingId(null)}>閉じる</button>
                           </div>
@@ -1678,7 +1704,7 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）、用語集のうち翻訳する文章に出てくる用語も送ります。用語集をAIで作る・直すときは、書いた内容と、対象の文章（選んだ場合は開いているページの本文）をClaudeへ送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）、辞書のうち翻訳する文章に出てくる用語も送ります。辞書をAIで作る・直すときは、書いた内容と、対象の文章（選んだ場合は開いているページの本文）をClaudeへ送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
             <p>送信先はTypeSafe Jev、DeepL、Claude（Anthropic）です。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
             <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a> · <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">Anthropicのプライバシー情報</a></p>
             <div className="consent-actions">
