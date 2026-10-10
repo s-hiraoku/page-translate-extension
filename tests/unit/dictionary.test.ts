@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROGRAMMING_DICTIONARY, applyDictionaryChanges, describeDictionary, dictionaryFor, parseDictionary, relevantExamples } from "../../src/shared/dictionary";
+import { applyDictionaryChanges, describeDictionary, dictionaryFor, parseDictionary, relevantExamples } from "../../src/shared/dictionary";
 
 const TEXT = `## 訳し方の方針
 - です・ます調
@@ -106,11 +106,8 @@ describe("applyDictionaryChanges", () => {
   });
 
   it("creates the sections in an empty dictionary", () => {
-    const { text } = applyDictionaryChanges("", PROGRAMMING_DICTIONARY, false, "プログラミング");
-    const dictionary = parseDictionary(text);
-    expect(dictionary.style).toEqual(PROGRAMMING_DICTIONARY.style);
-    expect(dictionary.terms).toEqual(PROGRAMMING_DICTIONARY.terms);
-    expect(dictionary.examples).toEqual(PROGRAMMING_DICTIONARY.examples);
+    const changes = { style: ["です・ます調"], terms: [{ term: "deploy", translation: "デプロイ" }], examples: [{ source: "Run it.", translation: "実行します。" }] };
+    expect(parseDictionary(applyDictionaryChanges("", changes, false, "AI").text)).toEqual(changes);
   });
 
   it("adds terms after a glossary without sections", () => {

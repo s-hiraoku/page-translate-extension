@@ -23,7 +23,7 @@ import type {
   TranslationEntry,
 } from "../shared/types";
 import { GLOSSARY_KEY, GLOSSARY_MAX_CHARS } from "../shared/glossary";
-import { PROGRAMMING_DICTIONARY, applyDictionaryChanges, describeDictionary, parseDictionary, type DictionaryChanges } from "../shared/dictionary";
+import { applyDictionaryChanges, describeDictionary, parseDictionary, type DictionaryChanges } from "../shared/dictionary";
 import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand, type ClaudeModel } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
@@ -1519,9 +1519,6 @@ export function SidePanel() {
                 onChange={(event) => { setGlossary(event.target.value); setGlossaryNote(""); }}
                 placeholder={"## 訳し方の方針\n- です・ます調で訳す\n\n## 用語\npull request = プルリクエスト\n\n## 例文\n原文: Run the following command.\n訳文: 次のコマンドを実行します。"}
               />
-              <button className="text-button" type="button" onClick={() => { setGlossary((current) => applyDictionaryChanges(current, PROGRAMMING_DICTIONARY, false, "プログラミング").text); setGlossaryNote(""); }}>
-                <Icon name="pen" />プログラミング向けのひな形を追加
-              </button>
               <button className="button secondary block" type="button" onClick={() => void saveGlossary()} disabled={glossary === savedGlossary}>
                 辞書を保存
               </button>

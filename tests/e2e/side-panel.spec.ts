@@ -650,7 +650,7 @@ test.describe("translating with Claude", () => {
     await expect.poll(stored).toBe("claude-sonnet-5-5");
   });
 
-  test("adds the programming starter to the dictionary and saves it, dropping Claude's cached pages", async ({ page }) => {
+  test("saves the dictionary edited by hand, dropping Claude's cached pages", async ({ page }) => {
     const claudePage = { savedAt: Date.now(), usedAt: Date.now(), hashes: [], decisions: {}, translations: {} };
     await openPanel(page, { stored: {
       pageTranslateGlossary: "deploy = 配置\n",
@@ -662,17 +662,13 @@ test.describe("translating with Claude", () => {
 
     const glossary = page.getByRole("textbox", { name: "辞書の中身" });
     await expect(glossary).toHaveValue("deploy = 配置\n");
-    await page.getByRole("button", { name: "プログラミング向けのひな形を追加" }).click();
-    await expect(glossary).toHaveValue(/pull request = プルリクエスト/);
-    await expect(glossary).toHaveValue(/## 訳し方の方針\n- 本文は「です・ます」調/);
-    await expect(glossary).toHaveValue(/## 例文\n原文: Run the following command to install the package\.\n訳文: /);
-    await expect(glossary).not.toHaveValue(/deploy = デプロイ/);
+    await glossary.fill("deploy = 配置\n\n## 例文\n原文: Deploy it.\n訳文: 配置します。\n");
     await page.getByRole("button", { name: "辞書を保存" }).click();
-    await expect(page.getByText(/辞書を保存しました（方針 7件・用語 \d+語・例文 8件）/)).toBeVisible();
+    await expect(page.getByText("辞書を保存しました（用語 1語・例文 1件）。")).toBeVisible();
 
     const read = (key: string) => page.evaluate(async (name) => (await (window as unknown as { chrome: { storage: { local: { get: (key: string) => Promise<Record<string, unknown>> } } } }).chrome.storage.local.get(name))[name], key);
     const stored = { pageTranslateGlossary: await read("pageTranslateGlossary"), pageTranslateCache: await read("pageTranslateCache") };
-    expect(stored.pageTranslateGlossary).toMatch(/^deploy = 配置\n\n# プログラミング\npull request = プルリクエスト/);
+    expect(stored.pageTranslateGlossary).toBe("deploy = 配置\n\n## 例文\n原文: Deploy it.\n訳文: 配置します。\n");
     expect(Object.keys((stored.pageTranslateCache as { pages: object }).pages)).toEqual(["https://example.com/|JA|jev"]);
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROGRAMMING_GLOSSARY, glossaryFor, parseGlossary } from "../../src/shared/glossary";
+import { glossaryFor, parseGlossary } from "../../src/shared/glossary";
 
 describe("parseGlossary", () => {
   it("reads 'term = translation' and tab-separated lines, skipping notes and incomplete lines", () => {
@@ -7,11 +7,6 @@ describe("parseGlossary", () => {
       { term: "pull request", translation: "プルリクエスト" },
       { term: "deploy", translation: "デプロイ" },
     ]);
-  });
-
-  it("reads the programming glossary without dropping a line", () => {
-    const lines = PROGRAMMING_GLOSSARY.split("\n").filter((line) => line.trim() && !line.startsWith("#"));
-    expect(parseGlossary(PROGRAMMING_GLOSSARY)).toHaveLength(lines.length);
   });
 });
 

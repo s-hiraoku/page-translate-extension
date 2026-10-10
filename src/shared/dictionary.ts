@@ -1,4 +1,4 @@
-import { PROGRAMMING_GLOSSARY, glossaryFor, parseGlossary, type GlossaryEntry } from "./glossary";
+import { glossaryFor, parseGlossary, type GlossaryEntry } from "./glossary";
 
 /**
  * The reader's dictionary: reference material Claude follows when it translates, kept as one text
@@ -281,29 +281,3 @@ export function applyDictionaryChanges(text: string, changes: DictionaryChanges,
   return { text: next, changed };
 }
 
-/**
- * A starting point for software documentation: how Japanese technical writing usually reads, the
- * terms machine translation tends to get wrong ("issue" as 問題, "deploy" as 配備), and examples.
- */
-export const PROGRAMMING_DICTIONARY: DictionaryChanges = {
-  style: [
-    "本文は「です・ます」調。見出し・箇条書き・表のセルは体言止めにし、句点を付けない",
-    "コード、コマンド、ファイルパス、関数名・API名・オプション名、エラーメッセージの原文は英語のまま",
-    "製品名・ライブラリ名は公式の表記（React、Node.js、GitHub など）",
-    "英数字は半角。日本語と英単語の間に半角スペースは入れない",
-    "カタカナ語の語末の長音は付ける（サーバー、ユーザー、パラメーター）",
-    "「you」は訳さず、手順は「〜します」「〜してください」で書く",
-    "Note: / Warning: / Tip: は「注:」「警告:」「ヒント:」",
-  ],
-  terms: parseGlossary(PROGRAMMING_GLOSSARY),
-  examples: [
-    { source: "Run the following command to install the package.", translation: "次のコマンドを実行して、パッケージをインストールします。" },
-    { source: "Getting started", translation: "はじめに" },
-    { source: "If the request fails, the function throws an error.", translation: "リクエストが失敗すると、関数はエラーをスローします。" },
-    { source: "Note: This option is deprecated and will be removed in the next major release.", translation: "注: このオプションは非推奨で、次のメジャーリリースで削除されます。" },
-    { source: "Returns `true` if the value is a valid URL.", translation: "値が有効なURLであれば`true`を返します。" },
-    { source: "You can configure the cache by setting the `CACHE_DIR` environment variable.", translation: "環境変数`CACHE_DIR`を設定すると、キャッシュを構成できます。" },
-    { source: "Open a pull request and wait for the review.", translation: "プルリクエストを作成し、レビューを待ちます。" },
-    { source: "This is a breaking change: code that relies on the old behavior must be updated.", translation: "これは破壊的変更です。以前の動作に依存しているコードは更新する必要があります。" },
-  ],
-};
