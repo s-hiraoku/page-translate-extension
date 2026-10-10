@@ -161,6 +161,9 @@ export function SidePanel() {
   // With "in the page" display the translations are on the page already, so the list starts folded
   // when a translation begins from an empty panel. It only folds in that mode.
   const [listFolded, setListFolded] = useState(false);
+  // "Back to the original" took the translations off the page while "in the page" stays chosen;
+  // the cards then lead with the translation again, as the page shows the source.
+  const [pageRestored, setPageRestored] = useState(false);
   // Which settings explanations are unfolded; they start folded each time the settings open.
   const [openHelp, setOpenHelp] = useState<ReadonlySet<string>>(() => new Set());
   const help: HelpState = {
@@ -578,6 +581,7 @@ export function SidePanel() {
     generationRef.current += 1;
     entriesRef.current = [];
     setEntries([]);
+    setPageRestored(false);
     setBusy(false);
     setError("");
     setStatus(INITIAL_STATUS);
@@ -741,6 +745,7 @@ export function SidePanel() {
     // A list the reader was already reading stays open; otherwise "in the page" shows the translations only there.
     const listShowing = entriesRef.current.length > 0;
     setListFolded((folded) => settings.displayMode === "inline" && (folded || !listShowing));
+    setPageRestored(false);
     setEntries([]);
     setDroppedCount(0);
     setSelectedId(null);
@@ -969,7 +974,19 @@ export function SidePanel() {
     const ready = current.filter((entry) => entry.state === "translated" && !entry.partial);
     if (ready.length === 0) return;
     const result = await sendMessage<{ applied: number }>({ type: "APPLY_TRANSLATIONS", entries: ready });
+    setPageRestored(false);
     setStatus(`ページ内に${result.applied}件を表示しています。`);
+  }
+
+  async function restorePage(): Promise<void> {
+    try {
+      await sendMessage({ type: "RESTORE_PAGE" });
+      setPageRestored(true);
+      setListFolded(false);
+      setStatus("原文に戻しました。");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
   }
 
   async function focusEntry(entry: TranslationEntry, index: number, event: ReactMouseEvent<HTMLElement>): Promise<void> {
@@ -1115,7 +1132,8 @@ export function SidePanel() {
     }
   }
 
-  const folded = listFolded && settings.displayMode === "inline";
+  const pageShowsTranslation = settings.displayMode === "inline" && !pageRestored;
+  const folded = listFolded && pageShowsTranslation;
   const sourceLang = settings.targetLanguage === "JA" ? "en" : "ja";
   const progress = visibleEntries.length > 0 ? translatedCount / visibleEntries.length : 0;
 
@@ -1519,7 +1537,7 @@ export function SidePanel() {
               <div className="results-heading">
                 <h2 id="results-title">翻訳箇所</h2>
                 <span className="count">{visibleEntries.length}</span>
-                {settings.displayMode === "inline" && visibleEntries.length > 0 && (
+                {pageShowsTranslation && visibleEntries.length > 0 && (
                   <button type="button" className="text-button list-toggle" aria-expanded={!folded} aria-controls="entry-list" onClick={() => setListFolded(!folded)}>
                     {folded ? "一覧を表示" : "一覧を畳む"}
                   </button>
@@ -1555,7 +1573,7 @@ export function SidePanel() {
                         {entry.state !== "translated" ? (<>
                           <span className="entry-review">{entry.reason ?? "判定を確認してください。"}</span>
                           <span className="entry-source entry-sub" lang={sourceLang}>{entry.sourceText}</span>
-                        </>) : settings.displayMode === "inline" ? (<>
+                        </>) : pageShowsTranslation ? (<>
                           {/* The page shows the translation already, so the card leads with the original. */}
                           <span className="entry-source entry-lead" lang={sourceLang}>{entry.sourceText}</span>
                           <span className="entry-translation entry-sub">{entry.translatedText}</span>
@@ -1638,8 +1656,8 @@ export function SidePanel() {
           <footer className="panel-footer">
             <span className="privacy"><Icon name="shield" />{privacySummary(applied)}</span>
             <a className="text-button" href={GUIDE_URL} target="_blank" rel="noreferrer">使い方</a>
-            {settings.displayMode === "inline" && translatedCount > 0 && (
-              <button type="button" className="text-button" onClick={() => void sendMessage({ type: "RESTORE_PAGE" }).then(() => setStatus("原文に戻しました。")).catch((caught: unknown) => setError(errorMessage(caught)))}>
+            {pageShowsTranslation && translatedCount > 0 && (
+              <button type="button" className="text-button" onClick={() => void restorePage()}>
                 <Icon name="restore" />原文に戻す
               </button>
             )}
