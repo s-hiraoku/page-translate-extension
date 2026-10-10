@@ -23,7 +23,7 @@ import type {
   TranslationEntry,
 } from "../shared/types";
 import { GLOSSARY_KEY, GLOSSARY_MAX_CHARS, PROGRAMMING_GLOSSARY, applyGlossaryEntries, mergeGlossary, parseGlossary, type GlossaryEntry } from "../shared/glossary";
-import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand } from "../shared/types";
+import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand, type ClaudeModel } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -1409,6 +1409,13 @@ export function SidePanel() {
             <label className="field-label" htmlFor="anthropic-api-key">APIキー</label>
             <input id="anthropic-api-key" className="field" type="password" autoComplete="new-password" spellCheck={false} value={anthropicApiKey} onChange={(event) => setAnthropicApiKey(event.target.value)} placeholder={providerStatus?.providers.claude ? "登録済み · 変更時だけ入力" : "ClaudeのAPIキー（sk-ant-…）"} />
             <p className="field-hint">Claude Consoleで作ったAPIキーです。Claude Max・Teamプランの月額APIクレジットは、Consoleの組織に受け取るとこのキーで使えます。</p>
+            <label className="field-label" htmlFor="claude-model">モデル</label>
+            <select id="claude-model" className="field" value={settings.claudeModel} onChange={(event) => void persistSettings({ ...settings, claudeModel: event.target.value as ClaudeModel })}>
+              <option value="claude-haiku-5-5">Haiku 5.5（安くて速い）</option>
+              <option value="claude-sonnet-5-5">Sonnet 5.5（中くらい）</option>
+              <option value="claude-opus-5-5">Opus 5.5（高品質・高価）</option>
+            </select>
+            <p className="field-hint">料金の目安（100万トークンあたり、入力／出力）：Haiku 0.10／0.50ドル、Sonnet 2／10ドル、Opus 4／20ドル。</p>
           </div>
 
           <div className="provider-card">

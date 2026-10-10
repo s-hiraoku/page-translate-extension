@@ -636,6 +636,20 @@ test.describe("translating with Claude", () => {
     expect(save?.keys).toMatchObject({ anthropicApiKey: "sk-ant-test" });
   });
 
+  test("translates with Haiku by default and saves another model chosen in the settings", async ({ page }) => {
+    await openPanel(page, { settings: { translationProvider: "claude" } });
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await expect(page.locator("#claude-model")).toHaveValue("claude-haiku-5-5");
+
+    await page.locator("#claude-model").selectOption("claude-sonnet-5-5");
+
+    const stored = () => page.evaluate(async () => {
+      const values = await chrome.storage.local.get("pageTranslateSettings");
+      return (values.pageTranslateSettings as { claudeModel?: string } | undefined)?.claudeModel;
+    });
+    await expect.poll(stored).toBe("claude-sonnet-5-5");
+  });
+
   test("adds the programming terms to the glossary and saves it, dropping Claude's cached pages", async ({ page }) => {
     const claudePage = { savedAt: Date.now(), usedAt: Date.now(), hashes: [], decisions: {}, translations: {} };
     await openPanel(page, { stored: {
