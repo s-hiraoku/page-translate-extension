@@ -7,7 +7,7 @@ import type {
 import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PANEL_COMMAND_KEY, PROVIDER_KEYS_KEY, SETTINGS_KEY, isPanelCommand, type ExtensionSettings, type PanelCommandRequest } from "../shared/types";
 import { CONSENT_NOTE, createSelectionTranslator, type SelectionOutcome } from "./selection";
 import { settingsOnInstall } from "../shared/effective-settings";
-import { buildDictionary, classifyCandidates, clearProviderKeys, fixDictionary, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateSelectionText, translateText } from "./providers";
+import { buildDictionary, classifyCandidates, clearProviderKeys, consultDictionary, fixDictionary, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateSelectionText, translateText } from "./providers";
 
 const storageReady = restrictStorageToExtensionPages();
 
@@ -218,9 +218,12 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       const settings = await readSettings();
       return { enabled: sender.tab !== undefined && settings.selectionAutoTranslate, provider: settings.translationProvider, targetLanguage: settings.targetLanguage };
     }
+    case "CONSULT_DICTIONARY":
+      requireExtensionPage(sender);
+      return consultDictionary(message.conversation, message.pageText === undefined ? undefined : { pageTitle: message.pageTitle ?? "", pageText: message.pageText });
     case "BUILD_DICTIONARY":
       requireExtensionPage(sender);
-      return buildDictionary(message.request, message.pageText === undefined ? undefined : { pageTitle: message.pageTitle ?? "", pageText: message.pageText });
+      return buildDictionary(message.conversation, message.pageText === undefined ? undefined : { pageTitle: message.pageTitle ?? "", pageText: message.pageText });
     case "FIX_DICTIONARY":
       requireExtensionPage(sender);
       return fixDictionary(message.sourceText, message.translatedText, message.feedback);

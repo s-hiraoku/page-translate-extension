@@ -101,6 +101,11 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         ? { text: "次のバージョンのリリース予定について尋ねたいです。" }
         : { text: "I would like to ask about the release schedule for the next version." },
       COMPOSE_REPHRASE: () => ({ text: "I want to ask about the release schedule for the next version." }),
+      CONSULT_DICTIONARY: (m) => ({
+        message: (m.conversation as unknown[]).length > 1
+          ? "わかりました。用語はカタカナにします。よければ「この内容で辞書を作る」を押してください。"
+          : "このページはWebアプリのリリースのお知らせです。この辞書は、このサイトの記事を訳すためのものですか？",
+      }),
       BUILD_DICTIONARY: () => ({
         style: ["です・ます調で訳す"],
         terms: [{ term: "dashboard", translation: "ダッシュボード" }, { term: "deploy", translation: "デプロイ" }],

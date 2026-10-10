@@ -25,6 +25,9 @@ export interface Dictionary {
   examples: DictionaryExample[];
 }
 
+/** One message of the consultation before a dictionary is built. */
+export type DictionaryTurn = { role: "reader" | "claude"; text: string };
+
 /** What Claude suggests adding to (or, after a fix, changing in) the dictionary. */
 export type DictionaryChanges = Dictionary;
 

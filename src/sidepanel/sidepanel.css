@@ -361,3 +361,14 @@ textarea.field.compose-area.tall { min-height: 18em; font-size: 12.5px; }
 .view-tabs button.locked { opacity: .5; cursor: not-allowed; }
 .view-tabs button.locked:hover { color: var(--muted); }
 .compose-lock-note { margin: 10px 14px; padding: 10px 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+
+/* The consultation before a dictionary is built. */
+.dictionary-talk { display: grid; gap: 8px; }
+.talk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 420px; overflow-y: auto; }
+.talk-turn { padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.6; }
+.talk-turn p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.talk-turn.claude { background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); }
+.talk-turn.reader { background: var(--accent-soft); border: 1px solid var(--line); color: var(--ink); margin-left: 24px; }
+.talk-who { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
+.talk-turn .spinner { margin-right: 6px; vertical-align: -2px; }
+.talk-actions { display: grid; grid-template-columns: auto 1fr; gap: 8px; }

@@ -714,22 +714,35 @@ test.describe("translating with Claude", () => {
     expect(Object.keys((stored.cache as { pages: object }).pages)).toEqual([]);
   });
 
-  test("builds the dictionary with Claude from the reader's wishes and the open page, keeping the reader's own lines", async ({ page }) => {
+  test("talks the dictionary over with Claude, from the open page, and builds it only once the reader approves", async ({ page }) => {
     await openPanel(page, { stored: { pageTranslateGlossary: "deploy = 配置\n" } });
     await page.getByRole("button", { name: "設定を開く" }).click();
     await page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ }).click();
     await page.getByRole("button", { name: "辞書の中身を見る・手で直す" }).click();
 
-    await page.getByRole("textbox", { name: "どんな文章を、どう訳したいか" }).fill("Webアプリの技術記事。用語はカタカナ");
-    await page.getByText("開いているページから用語と例文を作る").click();
+    await page.getByText("開いているページから辞書を作る").click();
     await page.getByRole("button", { name: "辞書を作る" }).click();
 
+    // Claude first says what the page is and asks why the reader wants the dictionary; nothing is built yet.
+    const talk = page.getByRole("list", { name: "辞書の相談" });
+    await expect(talk).toContainText("このページはWebアプリのリリースのお知らせです。");
+    expect((await sent(page)).some((message) => message.type === "BUILD_DICTIONARY")).toBe(false);
+    const first = (await sent(page)).find((message) => message.type === "CONSULT_DICTIONARY") as { conversation?: unknown[]; pageText?: string } | undefined;
+    expect(first?.conversation).toEqual([{ role: "reader", text: "開いているページから辞書を作りたい" }]);
+    expect(first?.pageText).toBe("We plan to ship version 2.0 next month.");
+
+    await page.getByRole("textbox", { name: "返事" }).fill("はい。用語はカタカナで");
+    await page.getByRole("button", { name: "送る", exact: true }).click();
+    await expect(talk).toContainText("用語はカタカナにします。");
+
+    await page.getByRole("button", { name: "この内容で辞書を作る" }).click();
     await expect(page.getByText("AIが辞書を作って保存しました（方針 1件・用語 2語・例文 1件）。")).toBeVisible();
     await expect(page.getByText("いまの辞書：方針 1件・用語 2語・例文 1件")).toBeVisible();
+    await expect(talk).toBeHidden();
     await expect(page.getByRole("textbox", { name: "辞書の中身" })).toHaveValue([
       "deploy = 配置",
       "",
-      "# AIが作成：Webアプリの技術記事。用語はカタカナ",
+      "# AIが作成：Release notes",
       "dashboard = ダッシュボード",
       "",
       "## 訳し方の方針",
@@ -740,9 +753,22 @@ test.describe("translating with Claude", () => {
       "訳文: 来月、バージョン2.0をリリースする予定です。",
       "",
     ].join("\n"));
-    const build = (await sent(page)).find((message) => message.type === "BUILD_DICTIONARY") as { request?: string; pageText?: string } | undefined;
-    expect(build?.request).toBe("Webアプリの技術記事。用語はカタカナ");
+    const build = (await sent(page)).find((message) => message.type === "BUILD_DICTIONARY") as { conversation?: Array<{ role: string; text: string }>; pageText?: string } | undefined;
+    expect(build?.conversation?.map((turn) => turn.role)).toEqual(["reader", "claude", "reader", "claude", "reader"]);
+    expect(build?.conversation?.[2]?.text).toBe("はい。用語はカタカナで");
     expect(build?.pageText).toBe("We plan to ship version 2.0 next month.");
+  });
+
+  test("starts the dictionary talk over when the reader stops it", async ({ page }) => {
+    await openPanel(page);
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await page.getByRole("button", { name: /^辞書（Claude）.*上級者向け$/ }).click();
+    await page.getByRole("textbox", { name: "どんな文章を、どう訳したいか" }).fill("Reactの技術記事");
+    await page.getByRole("button", { name: "辞書を作る" }).click();
+    await expect(page.getByRole("list", { name: "辞書の相談" })).toContainText("あなたReactの技術記事");
+    await page.getByRole("button", { name: "相談をやめる" }).click();
+    await expect(page.getByRole("list", { name: "辞書の相談" })).toBeHidden();
+    await expect(page.getByRole("textbox", { name: "どんな文章を、どう訳したいか" })).toHaveValue("Reactの技術記事");
   });
 
   test("fixes the dictionary from a card the reader disliked and translates that passage again", async ({ page }) => {

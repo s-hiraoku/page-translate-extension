@@ -1,3 +1,5 @@
+import type { DictionaryTurn } from "./dictionary";
+
 export type TargetLanguage = "JA" | "EN";
 export type DisplayMode = "source-panel" | "inline";
 export type ThemePreference = "system" | "light" | "dark";
@@ -161,7 +163,9 @@ export type ExtensionMessage =
   | { type: "COMPOSE_TRANSLATE"; text: string; targetLang: ComposeLanguage; context?: string }
   | { type: "COMPOSE_REPHRASE"; text: string; targetLang: EnglishVariant; style: WritingStyle }
   // Claude builds the dictionary from the reader's wishes (and the open page), or fixes it after a translation they disliked.
-  | { type: "BUILD_DICTIONARY"; request: string; pageTitle?: string; pageText?: string }
+  // Building starts with a consultation: Claude proposes, the reader answers, and the dictionary is built once they approve.
+  | { type: "CONSULT_DICTIONARY"; conversation: DictionaryTurn[]; pageTitle?: string; pageText?: string }
+  | { type: "BUILD_DICTIONARY"; conversation: DictionaryTurn[]; pageTitle?: string; pageText?: string }
   | { type: "FIX_DICTIONARY"; sourceText: string; translatedText: string; feedback: string };
 
 /** English variants DeepL writes; the writing check compares against one of them. */

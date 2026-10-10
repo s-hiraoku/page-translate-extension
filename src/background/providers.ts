@@ -1,8 +1,8 @@
 import type { CandidateSegment, ComposeLanguage, DeepLPlan, Decision, EnglishVariant, TargetLanguage, WritingStyle } from "../shared/types";
 import { PROVIDER_KEYS_KEY, SETTINGS_KEY, DEFAULT_SETTINGS, resolveDeepLPlan, type ExtensionSettings, type ProviderKeys, type ProviderStatus } from "../shared/types";
-import { type ClaudeAccess, buildDictionaryWithClaude, fixDictionaryWithClaude, translateSegmentsWithClaude, translateTextWithClaude } from "./claude";
+import { type ClaudeAccess, buildDictionaryWithClaude, consultDictionaryWithClaude, fixDictionaryWithClaude, translateSegmentsWithClaude, translateTextWithClaude } from "./claude";
 import { GLOSSARY_KEY } from "../shared/glossary";
-import { isEmptyDictionary, parseDictionary, type Dictionary, type DictionaryChanges } from "../shared/dictionary";
+import { isEmptyDictionary, parseDictionary, type Dictionary, type DictionaryChanges, type DictionaryTurn } from "../shared/dictionary";
 
 type DecisionResult = { decisions: Array<{ id: string; decision: Decision; confidence: number }> };
 type TranslationResult = { translations: Array<{ id: string; translatedText: string; translatedHtml: string }> };
@@ -208,13 +208,23 @@ export async function translateSelectionText(text: string, targetLang: ComposeLa
   return { text: await translateTextWithClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, text, targetLang, await readDictionary(true)) };
 }
 
-/** What Claude adds to the dictionary for the reader's wishes (and the open page, when given). */
-export async function buildDictionary(request: string, page?: { pageTitle: string; pageText: string }): Promise<DictionaryChanges> {
+/** Claude's next message in the consultation about the dictionary (with the open page, when given). */
+export async function consultDictionary(conversation: DictionaryTurn[], page?: { pageTitle: string; pageText: string }): Promise<{ message: string }> {
+  const { access, current } = await dictionaryAccess("辞書を作るには", conversation);
+  return { message: await consultDictionaryWithClaude(access, { conversation, page, current }) };
+}
+
+/** What Claude adds to the dictionary once the reader approved the plan in the consultation. */
+export async function buildDictionary(conversation: DictionaryTurn[], page?: { pageTitle: string; pageText: string }): Promise<DictionaryChanges> {
+  const { access, current } = await dictionaryAccess("辞書を作るには", conversation);
+  return buildDictionaryWithClaude(access, { conversation, page, current });
+}
+
+async function dictionaryAccess(purpose: string, conversation: DictionaryTurn[]): Promise<{ access: ClaudeAccess; current: Dictionary }> {
   const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
-  if (!keys.anthropicApiKey) throw new Error("辞書を作るには、設定画面でClaudeのAPIキーを登録してください。");
-  if (!request.trim() && !page) throw new Error("どんな文章を、どう訳したいかを書いてください。");
-  const current = (await readDictionary()) ?? parseDictionary("");
-  return buildDictionaryWithClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, { request, page, current });
+  if (!keys.anthropicApiKey) throw new Error(`${purpose}、設定画面でClaudeのAPIキーを登録してください。`);
+  if (!conversation.some((turn) => turn.role === "reader" && turn.text.trim())) throw new Error("どんな文章を、どう訳したいかを書いてください。");
+  return { access: { apiKey: keys.anthropicApiKey, model: settings.claudeModel }, current: (await readDictionary()) ?? parseDictionary("") };
 }
 
 /** What Claude changes in the dictionary so that a translation the reader disliked comes out right. */
