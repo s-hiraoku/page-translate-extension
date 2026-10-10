@@ -593,6 +593,27 @@ test.describe("the list with translations shown in the page", () => {
     await expect(card(page).locator(".entry-sub")).toHaveClass(/entry-source/);
   });
 
+  test("back to the original leads the cards with the translation again, until the page shows it again", async ({ page }) => {
+    const card = (page: Page) => page.locator('[data-entry-id="segment-2"]');
+    const restore = (page: Page) => page.getByRole("button", { name: "原文に戻す" });
+    await openPanel(page, { settings: { displayMode: "inline" } });
+    await translate(page);
+    await expect(list(page)).toBeHidden();
+
+    await restore(page).click();
+    await expect(page.locator(".status-text")).toHaveText("原文に戻しました。");
+    await expect(list(page)).toBeVisible();
+    await expect(card(page).locator(".entry-lead")).toHaveClass(/entry-translation/);
+    await expect(card(page).locator(".entry-sub")).toHaveClass(/entry-source/);
+    await expect(restore(page)).toHaveCount(0);
+    await expect(toggle(page)).toHaveCount(0);
+
+    await mode(page, "ページ内").click();
+    await expect(page.locator(".status-text")).toHaveText("ページ内に4件を表示しています。");
+    await expect(card(page).locator(".entry-lead")).toHaveClass(/entry-source/);
+    await expect(restore(page)).toBeVisible();
+  });
+
   test("clicking translated text on the page opens the folded list at its card", async ({ page }) => {
     await openPanel(page, { settings: { displayMode: "inline" } });
     await translate(page);
