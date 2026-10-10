@@ -8,7 +8,8 @@ import { CLAUDE_CONTEXT_CHARS, type CandidateSegment, type ComposeLanguage, type
  * and tone stay the same from the first heading to the last paragraph.
  */
 
-export const CLAUDE_MODEL = "claude-opus-5-5";
+// Haiku keeps each page cheap: about a fortieth of Opus per token.
+export const CLAUDE_MODEL = "claude-haiku-5-5";
 /** Passages are sent in batches no larger than this (HTML characters), several at a time. */
 const BATCH_CHARS = 12_000;
 const BATCH_COUNT = 40;
@@ -262,15 +263,13 @@ function languageName(target: TargetLanguage | ComposeLanguage): string {
 async function askClaude(apiKey: string, system: string, schema: object, content: string): Promise<string> {
   // The key is the reader's own and stays in this extension's service worker; it never reaches a page.
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, timeout: 180_000, maxRetries: 1 });
-  let response: Anthropic.Beta.BetaMessage;
+  let response: Anthropic.Message;
   try {
-    response = await client.beta.messages.stream({
+    response = await client.messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 32_000,
       // Translation needs little deliberation: low effort keeps the wait and the cost down.
       output_config: { effort: "low", format: { type: "json_schema", schema: schema as Record<string, unknown> } },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
       system,
       messages: [{ role: "user", content }],
     }).finalMessage();

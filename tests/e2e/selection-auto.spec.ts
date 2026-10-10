@@ -145,7 +145,7 @@ test.describe("translating as text is selected, with the panel closed", () => {
 
     await expect.poll(async () => (await tooltipText(page)) ?? "").toContain("潮汐とは、海面の規則的な上昇と下降です。");
     expect(requests[0]?.headers["x-api-key"]).toBe("sk-ant-test");
-    expect(requests[0]?.body.model).toBe("claude-opus-5-5");
+    expect(requests[0]?.body.model).toBe("claude-haiku-5-5");
   });
 
   test("shows nothing when the setting is off, even if the page was told it was on", async ({ page, send }) => {
@@ -177,7 +177,7 @@ test.describe("translating as text is selected, with the panel closed", () => {
 /** A Messages API stream (server-sent events) whose only text is `text`. */
 function claudeStream(text: string): string {
   const events: Array<[string, object]> = [
-    ["message_start", { type: "message_start", message: { id: "msg_test", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } }],
+    ["message_start", { type: "message_start", message: { id: "msg_test", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } }],
     ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
     ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }],
     ["content_block_stop", { type: "content_block_stop", index: 0 }],
