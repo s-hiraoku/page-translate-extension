@@ -1,11 +1,11 @@
 /**
- * The reader's glossary: terms Claude translates the way the reader wants. Stored as the text the
- * reader typed, one "term = translation" per line, so it can be edited and copied as it is.
+ * The terms of the reader's dictionary (see dictionary.ts), one "term = translation" per line. The
+ * whole dictionary is stored as one text under GLOSSARY_KEY, so it can be edited and copied as it is.
  */
 
 export const GLOSSARY_KEY = "pageTranslateGlossary";
-/** Longest glossary text that is kept (characters). Only the terms a passage uses are sent. */
-export const GLOSSARY_MAX_CHARS = 50_000;
+/** Longest dictionary text that is kept (characters). Only the parts a passage needs are sent. */
+export const GLOSSARY_MAX_CHARS = 100_000;
 
 export interface GlossaryEntry {
   term: string;
@@ -64,118 +64,3 @@ function contains(text: string, term: string): boolean {
   return new RegExp(`${start}${escaped}${end}`, "i").test(text);
 }
 
-/** Lines of `addition` whose term the glossary does not have yet, appended to it. */
-export function mergeGlossary(text: string, addition: string): string {
-  const terms = new Set(parseGlossary(text).map((entry) => entry.term.toLowerCase()));
-  const lines = addition.split("\n").filter((line) => {
-    const [entry] = parseGlossary(line);
-    return entry ? !terms.has(entry.term.toLowerCase()) : line.trim().startsWith("#");
-  });
-  if (lines.every((line) => line.trim().startsWith("#"))) return text;
-  const base = text.replace(/\s+$/, "");
-  return `${base}${base ? "\n\n" : ""}${lines.join("\n")}\n`;
-}
-
-/**
- * The glossary text with `entries` written in: an entry whose term is already there replaces that
- * line when `replace` is set (a fix the reader asked for) and is left out otherwise (the reader's own
- * line wins over a suggestion); the rest is appended under `heading`. Also returns how many changed.
- */
-export function applyGlossaryEntries(text: string, entries: GlossaryEntry[], replace: boolean, heading: string): { text: string; changed: number } {
-  const pending = new Map<string, GlossaryEntry>();
-  for (const entry of entries) pending.set(entry.term.toLowerCase(), entry);
-  let changed = 0;
-  const lines = text.split("\n").map((line) => {
-    const [existing] = parseGlossary(line);
-    const key = existing?.term.toLowerCase();
-    const update = key === undefined ? undefined : pending.get(key);
-    if (!existing || !update) return line;
-    pending.delete(key as string);
-    if (!replace || existing.translation === update.translation) return line;
-    changed += 1;
-    return `${existing.term} = ${update.translation}`;
-  });
-  const added = [...pending.values()].map((entry) => `${entry.term} = ${entry.translation}`);
-  changed += added.length;
-  let next = lines.join("\n");
-  if (added.length > 0) {
-    const base = next.replace(/\s+$/, "");
-    next = `${base}${base ? "\n\n" : ""}# ${heading}\n${added.join("\n")}\n`;
-  }
-  return { text: next, changed };
-}
-
-/**
- * A starter glossary for software documentation, as Japanese technical writing usually renders the
- * terms. Machine translation tends to get these wrong ("issue" as 問題, "deploy" as 配備).
- */
-export const PROGRAMMING_GLOSSARY = `# プログラミング
-pull request = プルリクエスト
-issue = Issue
-commit = コミット
-repository = リポジトリ
-branch = ブランチ
-merge = マージ
-rebase = リベース
-fork = フォーク
-clone = クローン
-deploy = デプロイ
-build = ビルド
-release = リリース
-dependency = 依存関係
-package = パッケージ
-library = ライブラリ
-framework = フレームワーク
-runtime = ランタイム
-compiler = コンパイラ
-interpreter = インタープリター
-function = 関数
-method = メソッド
-argument = 引数
-parameter = パラメーター
-return value = 戻り値
-variable = 変数
-constant = 定数
-type = 型
-interface = インターフェース
-class = クラス
-instance = インスタンス
-object = オブジェクト
-property = プロパティ
-field = フィールド
-module = モジュール
-namespace = 名前空間
-callback = コールバック
-closure = クロージャ
-promise = Promise
-thread = スレッド
-event loop = イベントループ
-exception = 例外
-error handling = エラー処理
-stack trace = スタックトレース
-debug = デバッグ
-breakpoint = ブレークポイント
-test = テスト
-unit test = 単体テスト
-assertion = アサーション
-mock = モック
-refactor = リファクタリング
-endpoint = エンドポイント
-request = リクエスト
-response = レスポンス
-query = クエリ
-schema = スキーマ
-migration = マイグレーション
-cache = キャッシュ
-environment variable = 環境変数
-configuration = 設定
-command line = コマンドライン
-shell = シェル
-container = コンテナ
-token = トークン
-authentication = 認証
-authorization = 認可
-deprecated = 非推奨
-backward compatible = 後方互換
-breaking change = 破壊的変更
-`;
