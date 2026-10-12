@@ -99,7 +99,8 @@ export interface ExtensionSettings {
   /**
    * Who translates: Chrome's built-in translator (desktop Chrome 138+, runs on this device, no key;
    * the default for new installs, falling back to DeepL where Chrome has none) or DeepL (sent over
-   * the network) or Claude (sent over the network, with the reader's Anthropic API key). Installs from
+   * the network) or Claude (sent over the network, with the reader's Anthropic API key) or ChatGPT (sent
+   * over the network, on the reader's ChatGPT plan after "Sign in with ChatGPT"). Installs from
    * before the built-in translator existed keep DeepL.
    */
   translationProvider: TranslationProvider;
@@ -107,21 +108,26 @@ export interface ExtensionSettings {
   pageSelectTrigger: PageSelectTrigger;
   /** The Claude model that translates when Claude is the translation service. Haiku costs the least. */
   claudeModel: ClaudeModel;
-  /** Translate with the reader's dictionary (Claude only). The dictionary is kept when this is off. */
+  /** Translate with the reader's dictionary (Claude and ChatGPT). The dictionary is kept when this is off. */
   useGlossary: boolean;
+  /** The ChatGPT model (a slug from the signed-in account's model list); empty picks the first one listed. */
+  chatgptModel: string;
 }
 
 export type PageSelectTrigger = "click" | "hover";
 
-export type TranslationProvider = "deepl" | "chrome" | "claude";
+export type TranslationProvider = "deepl" | "chrome" | "claude" | "chatgpt";
 
 export type ClaudeModel = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
 
 export const SETTINGS_KEY = "pageTranslateSettings";
 export const PROVIDER_KEYS_KEY = "pageTranslateProviderKeys";
 export const DATA_USE_CONSENT_KEY = "pageTranslateDataUseConsentVersion";
-/** 2: the English writing check also sends the reader's own text to DeepL. 3: text may go to Claude (Anthropic). */
-export const DATA_USE_CONSENT_VERSION = 3;
+/**
+ * 2: the English writing check also sends the reader's own text to DeepL. 3: text may go to Claude (Anthropic).
+ * 4: text may go to ChatGPT (OpenAI).
+ */
+export const DATA_USE_CONSENT_VERSION = 4;
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   targetLanguage: "JA",
   displayMode: "source-panel",
@@ -138,6 +144,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   pageSelectTrigger: "click",
   claudeModel: "claude-haiku-5-5",
   useGlossary: true,
+  chatgptModel: "",
 };
 
 export type ExtensionMessage =
@@ -145,6 +152,9 @@ export type ExtensionMessage =
   | { type: "CHECK_PROVIDERS" }
   | { type: "SAVE_PROVIDER_KEYS"; keys: Partial<ProviderKeys> }
   | { type: "CLEAR_PROVIDER_KEYS" }
+  // "Sign in with ChatGPT": the service worker opens OpenAI's sign-in in a tab and waits for it to finish.
+  | { type: "CHATGPT_SIGN_IN" }
+  | { type: "CHATGPT_SIGN_OUT" }
   | { type: "SCAN_ACTIVE_TAB" }
   | { type: "CLASSIFY_CANDIDATES"; segments: CandidateSegment[]; targetLanguage: TargetLanguage; pageTitle?: string; mainContentDetected?: boolean }
   // pageTitle and pageText are context for Claude: pageText is the page's text to translate, cached passages included.
@@ -256,7 +266,24 @@ export interface ProviderKeys {
 }
 
 export interface ProviderStatus {
-  providers: { jev: boolean; deepl: boolean; claude: boolean };
+  /** chatgpt: signed in with ChatGPT, with plan usage granted. */
+  providers: { jev: boolean; deepl: boolean; claude: boolean; chatgpt?: boolean };
+  /** The ChatGPT account signed in, and the models it offers; null when signed out. */
+  chatgpt?: ChatGPTAccount | null;
   /** DeepL plan the registered key is used with (after "auto" detection); null without a key. */
   deeplPlan: DeepLPlan | null;
 }
+
+export interface ChatGPTAccount {
+  email: string;
+  models: Array<{ slug: string; name: string }>;
+}
+
+/** The loopback address OpenAI's sign-in returns to. The extension reads the address from the tab; nothing listens there. */
+export const CHATGPT_REDIRECT_URI = "http://127.0.0.1:54321/auth/callback";
+/**
+ * The origins the ChatGPT sign-in and translation need. Optional: asked for when the reader first signs in,
+ * so readers who never use ChatGPT do not grant them. The loopback one lets the extension read the address
+ * the sign-in returns to.
+ */
+export const CHATGPT_ORIGINS = ["https://auth.openai.com/*", "https://api.openai.com/*", "http://127.0.0.1:54321/*"];

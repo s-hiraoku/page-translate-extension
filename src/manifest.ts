@@ -20,6 +20,8 @@ export default defineManifest({
     "https://api-free.deepl.com/*",
     "https://api.deepl.com/*",
   ],
+  // ChatGPT (Sign in with ChatGPT): asked for when the reader first signs in. Keep in step with CHATGPT_ORIGINS.
+  optional_host_permissions: ["https://auth.openai.com/*", "https://api.openai.com/*", "http://127.0.0.1:54321/*"],
   background: { service_worker: "src/background/service-worker.ts", type: "module" },
   action: {
     default_title: "Open Page Translate",

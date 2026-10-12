@@ -17,7 +17,9 @@ export interface MockOptions {
   /** Extra chrome.storage.local values present when the panel opens. */
   stored?: Record<string, unknown>;
   /** Which API keys are registered; both by default. */
-  providers?: { jev: boolean; deepl: boolean; claude?: boolean };
+  providers?: { jev: boolean; deepl: boolean; claude?: boolean; chatgpt?: boolean };
+  /** The ChatGPT account signed in ("Sign in with ChatGPT"); none by default. */
+  chatgpt?: { email: string; models: Array<{ slug: string; name: string }> } | null;
   /**
    * Chrome's built-in Translator API, absent by default (as in Playwright's Chromium). "downloadable"
    * reports download progress when created; window.__translatorCreates counts creations.
@@ -38,7 +40,7 @@ export const SEGMENTS = [
 ].map((segment) => ({ sourceHtml: segment.sourceText, linkDensity: 0, isArticleTitle: false, ...segment }));
 
 export async function installChromeMock(page: Page, options: MockOptions = {}): Promise<void> {
-  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId, stored, providers, translator }) => {
+  await page.addInitScript(({ segments, consent, deeplPlan, settings, shortcuts, windowId, stored, providers, translator, chatgpt }) => {
     type Message = { type: string; [key: string]: unknown };
     type Handler = (message: Message) => unknown;
     const w = window as unknown as Record<string, unknown>;
@@ -90,7 +92,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
       TRANSLATE_SEGMENTS: (m) => ({
         translations: (m.segments as Array<{ id: string }>).map((s) => ({ id: s.id, translatedText: translations[s.id] ?? `訳:${s.id}`, translatedHtml: translations[s.id] ?? `訳:${s.id}` })),
       }),
-      CHECK_PROVIDERS: () => ({ providers, deeplPlan }),
+      CHECK_PROVIDERS: () => ({ providers, deeplPlan, chatgpt }),
       FOCUS_SEGMENT: () => ({ focused: true }),
       APPLY_TRANSLATIONS: (m) => ({ applied: (m.entries as unknown[]).length }),
       READ_SELECTION: () => ({ id: 1, text: "The tide rises twice a day along most coastlines." }),
@@ -175,6 +177,8 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         getAll: async () => Object.entries(shortcuts).map(([name, shortcut]) => ({ name, shortcut, description: name })),
       },
       windows: { getCurrent: async () => ({ id: windowId }) },
+      // The reader allows whatever is asked; window.__permissionRequests records what.
+      permissions: { request: async (request: unknown) => { ((w.__permissionRequests ??= []) as unknown[]).push(request); return true; } },
       runtime: {
         lastError: undefined,
         sendMessage: async (message: Message) => {
@@ -194,7 +198,7 @@ export async function installChromeMock(page: Page, options: MockOptions = {}): 
         },
       },
     };
-  }, { segments: SEGMENTS, consent: options.consent === undefined ? 3 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true, claude: true }, translator: options.translator ?? null });
+  }, { segments: SEGMENTS, consent: options.consent === undefined ? 4 : options.consent, deeplPlan: options.deeplPlan === undefined ? "free" : options.deeplPlan, settings: options.settings ?? null, shortcuts: options.shortcuts ?? { "translate-page": "Alt+Shift+Y", "toggle-page-pick": "Alt+Shift+K" }, windowId: PANEL_WINDOW_ID, stored: options.stored ?? null, providers: options.providers ?? { jev: true, deepl: true, claude: true }, translator: options.translator ?? null, chatgpt: options.chatgpt ?? null });
 }
 
 /** Message types the panel has sent so far, in order. */
