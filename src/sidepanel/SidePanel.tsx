@@ -1591,7 +1591,7 @@ export function SidePanel() {
           <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl && !providerStatus?.providers.claude}>
             <Icon name="trash" />保存中のAPIキーを削除
           </button>
-          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）へ直接送信します。ChatGPTのログインも同じく、Chromeを終了するとやり直しになります。</p>
+          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）、ChatGPT（OpenAI）へ直接送信します。ChatGPTのログインも同じく、Chromeを終了するとやり直しになります。</p>
 
           {/* An advanced setting: folded until the reader opens it, so the basic settings stay simple. */}
           <div className="settings-heading">

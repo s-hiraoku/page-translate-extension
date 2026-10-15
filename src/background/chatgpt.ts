@@ -213,12 +213,16 @@ async function accessToken(force = false): Promise<string> {
   if (!session) throw new Error(NOT_SIGNED_IN);
   if (!force && Date.now() < session.refreshAt) return session.accessToken;
   // Refresh tokens rotate: two refreshes at once would spend the same one twice.
-  refreshing ??= refresh(session).finally(() => { refreshing = null; });
+  refreshing ??= refresh(session.accessToken).finally(() => { refreshing = null; });
   return refreshing;
 }
 let refreshing: Promise<string> | null = null;
 
-async function refresh(session: Session): Promise<string> {
+async function refresh(staleToken: string): Promise<string> {
+  const session = await readSession();
+  if (!session) throw new Error(NOT_SIGNED_IN);
+  // Another request refreshed after this one read the session: its token is the current one.
+  if (session.accessToken !== staleToken) return session.accessToken;
   let tokens: TokenResponse;
   try {
     tokens = await requestTokens({ grant_type: "refresh_token", client_id: session.clientId, refresh_token: session.refreshToken, resource: API });
