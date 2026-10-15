@@ -170,8 +170,8 @@ export function SidePanel() {
   // The tab the results and modes belong to; switching to another tab in this window clears them.
   const boundTabRef = useRef<number | null>(null);
   const panelTopRef = useRef<HTMLDivElement | null>(null);
-  // With "in the page" display the translations are on the page already, so the list starts folded
-  // when a translation begins from an empty panel. It only folds in that mode.
+  // With "in the page" display the reader can fold the list, as the translations are on the page already.
+  // It only folds in that mode, and only when the reader folds it.
   const [listFolded, setListFolded] = useState(false);
   // "Back to the original" took the translations off the page while "in the page" stays chosen;
   // the cards then lead with the translation again, as the page shows the source.
@@ -754,9 +754,9 @@ export function SidePanel() {
     const stale = () => generation !== generationRef.current;
     setBusy(true);
     setError("");
-    // A list the reader was already reading stays open; otherwise "in the page" shows the translations only there.
+    // The cards show from the first translation; a list the reader folded stays folded when translating again.
     const listShowing = entriesRef.current.length > 0;
-    setListFolded((folded) => settings.displayMode === "inline" && (folded || !listShowing));
+    setListFolded((folded) => settings.displayMode === "inline" && folded && listShowing);
     setPageRestored(false);
     setEntries([]);
     setDroppedCount(0);
