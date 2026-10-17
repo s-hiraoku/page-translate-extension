@@ -99,3 +99,10 @@ describe("missingKeyMessage with Claude", () => {
     expect(missingKeyMessage({ jev: false, deepl: false, claude: true }, "claude")).toContain("TypeSafe JevのAPIキーが未登録");
   });
 });
+
+describe("missingKeyMessage with ChatGPT", () => {
+  it("asks the reader to sign in when ChatGPT translates", () => {
+    expect(missingKeyMessage({ jev: true, deepl: false, chatgpt: false }, "chatgpt")).toContain("ChatGPTでログイン");
+    expect(missingKeyMessage({ jev: true, deepl: false, chatgpt: true }, "chatgpt")).toBeNull();
+  });
+});

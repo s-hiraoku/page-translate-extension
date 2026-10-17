@@ -632,6 +632,47 @@ test.describe("the list with translations shown in the page", () => {
   });
 });
 
+test.describe("translating with ChatGPT", () => {
+  type Sent = Array<{ type: string; pageTitle?: string; pageText?: string }>;
+  const sent = (page: Page) => page.evaluate(() => (window as unknown as { __sent: Sent }).__sent);
+  const overrideMessage = (page: Page, type: string, reply: unknown) => page.evaluate(({ type, reply }) => {
+    (window as unknown as { __override: (type: string, handler: () => unknown) => void }).__override(type, () => reply);
+  }, { type, reply });
+  const account = { email: "reader@example.com", models: [{ slug: "gpt-a", name: "GPT A" }, { slug: "gpt-b", name: "GPT B" }] };
+
+  test("points to the settings when not signed in, and signs in there after allowing OpenAI's addresses", async ({ page }) => {
+    await openPanel(page, { providers: { jev: true, deepl: true, claude: true, chatgpt: false }, settings: { translationProvider: "chatgpt" } });
+    await expect(page.locator(".steps")).toContainText("ChatGPTで翻訳");
+    await expect(page.locator(".setup-hint")).toContainText("ChatGPTのアカウントでログイン");
+    await page.locator(".setup-hint").getByRole("button", { name: "設定でログイン" }).click();
+
+    await overrideMessage(page, "CHATGPT_SIGN_IN", { providers: { jev: true, deepl: true, claude: true, chatgpt: true }, deeplPlan: "free", chatgpt: account });
+    await page.getByRole("button", { name: "ChatGPTでログイン" }).click();
+
+    await expect(page.getByText("reader@example.com でログインしています。")).toBeVisible();
+    await expect(page.locator("#chatgpt-model")).toHaveValue("gpt-a");
+    const requests = await page.evaluate(() => (window as unknown as { __permissionRequests: Array<{ origins: string[] }> }).__permissionRequests);
+    expect(requests[0]?.origins).toContain("https://api.openai.com/*");
+    expect((await sent(page)).some((message) => message.type === "CHATGPT_SIGN_IN")).toBe(true);
+  });
+
+  test("sends the page's text along with the passages, and saves the model chosen in the settings", async ({ page }) => {
+    const errors = await openPanel(page, { providers: { jev: true, deepl: true, claude: true, chatgpt: true }, chatgpt: account, settings: { translationProvider: "chatgpt" } });
+    await translate(page);
+    const request = (await sent(page)).find((message) => message.type === "TRANSLATE_SEGMENTS");
+    expect(request?.pageTitle).toBe("Designing calm interfaces");
+
+    await page.getByRole("button", { name: "設定を開く" }).click();
+    await page.locator("#chatgpt-model").selectOption("gpt-b");
+    const stored = () => page.evaluate(async () => {
+      const values = await chrome.storage.local.get("pageTranslateSettings");
+      return (values.pageTranslateSettings as { chatgptModel?: string } | undefined)?.chatgptModel;
+    });
+    await expect.poll(stored).toBe("gpt-b");
+    expect(errors).toEqual([]);
+  });
+});
+
 test.describe("translating with Claude", () => {
   type Sent = Array<{ type: string; pageTitle?: string; pageText?: string; segments?: Array<{ sourceText: string }>; keys?: Record<string, string> }>;
   const sent = (page: Page) => page.evaluate(() => (window as unknown as { __sent: Sent }).__sent);

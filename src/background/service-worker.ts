@@ -8,6 +8,7 @@ import { DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PANEL
 import { CONSENT_NOTE, createSelectionTranslator, type SelectionOutcome } from "./selection";
 import { settingsOnInstall } from "../shared/effective-settings";
 import { buildDictionary, classifyCandidates, clearProviderKeys, consultDictionary, fixDictionary, providerStatus, rephraseText, saveProviderKeys, translateSegments, translateSelectionText, translateText } from "./providers";
+import { signInChatGPT, signOutChatGPT } from "./chatgpt";
 
 const storageReady = restrictStorageToExtensionPages();
 
@@ -171,6 +172,14 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     case "CLEAR_PROVIDER_KEYS":
       requireExtensionPage(sender);
       return clearProviderKeys();
+    case "CHATGPT_SIGN_IN":
+      requireExtensionPage(sender);
+      await signInChatGPT();
+      return providerStatus();
+    case "CHATGPT_SIGN_OUT":
+      requireExtensionPage(sender);
+      await signOutChatGPT();
+      return providerStatus();
     case "SCAN_ACTIVE_TAB":
       return sendToActiveTab({ type: "SCAN_PAGE" });
     case "FOCUS_SEGMENT":
@@ -196,7 +205,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     case "COMPOSE_REPHRASE":
       requireExtensionPage(sender);
       return rephraseText(message.text, message.targetLang, message.style);
-    // Selection translation reads the page's selection and sends it to DeepL or Claude: only the side panel may ask.
+    // Selection translation reads the page's selection and sends it to DeepL, Claude or ChatGPT: only the side panel may ask.
     case "READ_SELECTION":
       requireExtensionPage(sender);
       return sendToActiveTab({ type: "READ_SELECTION" });

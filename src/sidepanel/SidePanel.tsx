@@ -24,7 +24,7 @@ import type {
 } from "../shared/types";
 import { GLOSSARY_KEY, GLOSSARY_MAX_CHARS } from "../shared/glossary";
 import { applyDictionaryChanges, describeDictionary, parseDictionary, type DictionaryChanges, type DictionaryTurn } from "../shared/dictionary";
-import { CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand, type ClaudeModel } from "../shared/types";
+import { CHATGPT_ORIGINS, CLAUDE_CONTEXT_CHARS, DATA_USE_CONSENT_KEY, DATA_USE_CONSENT_VERSION, DEFAULT_SETTINGS, PAGE_PICK_PORT, PAGE_WATCH_PORT, PANEL_COMMAND_KEY, PANEL_PRESENCE_PORT, SELECTION_PORT, SETTINGS_KEY, isPanelCommand, type ClaudeModel } from "../shared/types";
 import { Composer } from "./Composer";
 import { Icon, type IconName } from "./Icon";
 import {
@@ -111,6 +111,8 @@ export function SidePanel() {
   const [status, setStatus] = useState(INITIAL_STATUS);
   const [error, setError] = useState("");
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
+  /** Signing in to or out of ChatGPT; the sign-in waits for the reader in another tab. */
+  const [chatgptBusy, setChatgptBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [typesafeApiKey, setTypesafeApiKey] = useState("");
   const [deeplApiKey, setDeeplApiKey] = useState("");
@@ -1062,6 +1064,40 @@ export function SidePanel() {
     }
   }
 
+  /**
+   * "Sign in with ChatGPT": the reader allows the OpenAI addresses (asked only now, while they click),
+   * then the service worker opens OpenAI's sign-in in a tab and waits until they finish there.
+   */
+  async function signInChatGPT(): Promise<void> {
+    setError("");
+    if (!(await chrome.permissions.request({ origins: CHATGPT_ORIGINS }))) {
+      setError("ChatGPTにログインするには、OpenAIへの接続を許可してください。");
+      return;
+    }
+    setChatgptBusy(true);
+    try {
+      setProviderStatus(await sendMessage<ProviderStatus>({ type: "CHATGPT_SIGN_IN" }));
+      setStatus("ChatGPTにログインしました。");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setChatgptBusy(false);
+    }
+  }
+
+  async function signOutChatGPT(): Promise<void> {
+    setError("");
+    setChatgptBusy(true);
+    try {
+      setProviderStatus(await sendMessage<ProviderStatus>({ type: "CHATGPT_SIGN_OUT" }));
+      setStatus("ChatGPTからログアウトしました。");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setChatgptBusy(false);
+    }
+  }
+
   /** Saves the glossary text; false when it is too long to keep. */
   async function saveGlossary(text = glossary, note?: string): Promise<boolean> {
     if (text.length > GLOSSARY_MAX_CHARS) {
@@ -1076,12 +1112,12 @@ export function SidePanel() {
     return true;
   }
 
-  /** Claude's cached pages and selections were translated with the old dictionary (or without it). */
+  /** Claude's and ChatGPT's cached pages and selections were translated with the old dictionary (or without it). */
   async function forgetClaudeTranslations(): Promise<void> {
     glossaryRevision.current += 1;
-    for (const key of [...selectionCache.current.keys()]) if (key.startsWith("claude\n")) selectionCache.current.delete(key);
+    for (const key of [...selectionCache.current.keys()]) if (key.startsWith("claude\n") || key.startsWith("chatgpt\n")) selectionCache.current.delete(key);
     const store = await loadCacheStore();
-    await chrome.storage.local.set({ [CACHE_KEY]: withoutProvider(store, "claude") });
+    await chrome.storage.local.set({ [CACHE_KEY]: withoutProvider(withoutProvider(store, "claude"), "chatgpt") });
     void refreshCacheInfo();
   }
 
@@ -1361,12 +1397,14 @@ export function SidePanel() {
             <b>Chrome内蔵</b>：Chromeに内蔵の翻訳で、この端末の中で翻訳します。APIキーは不要で、文章は外部へ送りません（Jevを使う場合、本文候補はJevへ送ります）。初回は翻訳モデルのダウンロードがあります。ページ内表示では、リンクなどの書式が外れます。パソコン版のChrome 138以降で使えます。<br />
             <b>DeepL</b>：DeepLで翻訳します。DeepLのAPIキーが必要です。<br />
             <b>Claude</b>：AnthropicのClaudeが、ページ全体の流れを見て翻訳します。用語や文体がそろいやすい一方、DeepLより時間がかかります。ClaudeのAPIキーが必要です（Claude Maxなどのプランに付く月額APIクレジットも使えます）。<br />
+            <b>ChatGPT</b>：OpenAIのChatGPTが、Claudeと同じようにページ全体の流れを見て翻訳します。APIキーは不要で、ChatGPTのアカウントでログインすると、ChatGPTのプラン（Plus・Proなど）の利用枠で翻訳します。<br />
             英作文は、どれを選んでもDeepLを使います。
           </SettingHeading>
           <div className="mode-switch" role="radiogroup" aria-labelledby="provider-label">
             {([
               { value: "deepl", label: "DeepL" },
               { value: "claude", label: "Claude" },
+              { value: "chatgpt", label: "ChatGPT" },
               { value: "chrome", label: "Chrome内蔵" },
             ] as const).map((option) => (
               <button
@@ -1504,6 +1542,32 @@ export function SidePanel() {
             <p className="field-hint">料金の目安（100万トークンあたり、入力／出力）：Haiku 0.10／0.50ドル、Sonnet 2／10ドル、Opus 4／20ドル。</p>
           </div>
 
+          <div className={`provider-card ${applied.translationProvider === "chatgpt" ? "" : "unused"}`}>
+            <div className="provider-card-heading">
+              <div><h3>ChatGPT</h3><p>{applied.translationProvider === "chatgpt" ? "ページの本文を翻訳します。" : "翻訳サービスでChatGPTを選ぶと使います。"}</p></div>
+              <span className={`badge ${providerStatus?.providers.chatgpt ? "ready" : "missing"}`}>{providerStatus?.providers.chatgpt ? "ログイン中" : "未ログイン"}</span>
+            </div>
+            {providerStatus?.chatgpt ? (
+              <>
+                <p className="field-hint">{providerStatus.chatgpt.email ? `${providerStatus.chatgpt.email} でログインしています。` : "ログインしています。"}翻訳はChatGPTのプランの利用枠を使います。</p>
+                <label className="field-label" htmlFor="chatgpt-model">モデル</label>
+                <select id="chatgpt-model" className="field" value={providerStatus.chatgpt.models.some((model) => model.slug === settings.chatgptModel) ? settings.chatgptModel : providerStatus.chatgpt.models[0]?.slug ?? ""} onChange={(event) => void persistSettings({ ...settings, chatgptModel: event.target.value })}>
+                  {providerStatus.chatgpt.models.map((model) => <option key={model.slug} value={model.slug}>{model.name}</option>)}
+                </select>
+                <button className="text-button danger" type="button" onClick={() => void signOutChatGPT()} disabled={chatgptBusy}>
+                  <Icon name="trash" />ChatGPTからログアウト
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="field-hint">APIキーは不要です。ChatGPT Plus・Proなどのアカウントでログインすると、そのプランの利用枠で翻訳します。新しいタブでOpenAIのログイン画面が開くので、ログインして許可してください。</p>
+                <button className="button secondary block" type="button" onClick={() => void signInChatGPT()} disabled={chatgptBusy}>
+                  <Icon name="key" />{chatgptBusy ? "ログインを待っています…" : "ChatGPTでログイン"}
+                </button>
+              </>
+            )}
+          </div>
+
           <div className="provider-card">
             <div className="provider-card-heading">
               <div><h3>DeepL</h3><p>{settings.useJev ? "Jevが選んだ本文を翻訳します。" : "本文を翻訳します。"}</p></div>
@@ -1527,7 +1591,7 @@ export function SidePanel() {
           <button className="text-button danger block" type="button" onClick={() => void clearProviderKeys()} disabled={!providerStatus?.providers.jev && !providerStatus?.providers.deepl && !providerStatus?.providers.claude}>
             <Icon name="trash" />保存中のAPIキーを削除
           </button>
-          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）へ直接送信します。</p>
+          <p className="note"><Icon name="shield" />キーはメモリ上に保持し、ページ側には渡しません。Chromeを終了または拡張機能を再読み込みすると消えるため、次回は再入力してください。問い合わせ時はTypeSafe Jev、DeepL、Claude（Anthropic）、ChatGPT（OpenAI）へ直接送信します。ChatGPTのログインも同じく、Chromeを終了するとやり直しになります。</p>
 
           {/* An advanced setting: folded until the reader opens it, so the basic settings stay simple. */}
           <div className="settings-heading">
@@ -1547,7 +1611,7 @@ export function SidePanel() {
             <HelpToggle id="glossary-label" label="辞書（Claude）" help={help} />
           </div>
           <HelpText id="glossary-label" help={help}>
-            辞書は、Claudeが翻訳のときに参考にする手本です。「訳し方の方針」「用語」「例文（原文と手本の訳）」の3つでできていて、どんな文章をどう訳したいかを書いて（またはページを選んで）「辞書を作る」を押すと、Claudeがまず内容を読んで、どんな辞書にするかを提案し、わからないことを質問します。返事をして、内容に納得したら「この内容で辞書を作る」を押すと、AIが専用の手順（辞書を作るスキル）で作ります。「この辞書で翻訳する」を「使う」にしておくと、翻訳サービスがClaudeのとき、方針と、訳す文章に出てくる用語、近い例文を数件見て、同じような訳文を作ります。訳が気に入らなければ、翻訳カードの「この訳を直す」から辞書を直せます（直した訳が例文として加わります）。
+            辞書は、Claudeが翻訳のときに参考にする手本です。「訳し方の方針」「用語」「例文（原文と手本の訳）」の3つでできていて、どんな文章をどう訳したいかを書いて（またはページを選んで）「辞書を作る」を押すと、Claudeがまず内容を読んで、どんな辞書にするかを提案し、わからないことを質問します。返事をして、内容に納得したら「この内容で辞書を作る」を押すと、AIが専用の手順（辞書を作るスキル）で作ります。「この辞書で翻訳する」を「使う」にしておくと、翻訳サービスがClaudeかChatGPTのとき、方針と、訳す文章に出てくる用語、近い例文を数件見て、同じような訳文を作ります。訳が気に入らなければ、翻訳カードの「この訳を直す」から辞書を直せます（直した訳が例文として加わります）。
           </HelpText>
           <div id="glossary-panel" hidden={!help.isOpen("glossary-panel")}>
             {dictionaryTalk.length === 0 ? (
@@ -1790,7 +1854,7 @@ export function SidePanel() {
               <ol className="steps">
                 <li><span>1</span>本文を抽出</li>
                 <li><span>2</span>{applied.useJev ? "Jevが翻訳対象を判定" : "ルールで本文を選別"}</li>
-                <li><span>3</span>{applied.translationProvider === "chrome" ? "Chromeで翻訳" : applied.translationProvider === "claude" ? "Claudeで翻訳" : "DeepLで翻訳"}</li>
+                <li><span>3</span>{applied.translationProvider === "chrome" ? "Chromeで翻訳" : applied.translationProvider === "claude" ? "Claudeで翻訳" : applied.translationProvider === "chatgpt" ? "ChatGPTで翻訳" : "DeepLで翻訳"}</li>
               </ol>
               {applied.translationProvider === "deepl" && providerStatus && !providerStatus.providers.deepl && (
                 <p className="setup-hint">
@@ -1802,6 +1866,12 @@ export function SidePanel() {
                 <p className="setup-hint">
                   はじめに、ClaudeのAPIキーを登録してください。
                   <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でAPIキーを登録</button>
+                </p>
+              )}
+              {applied.translationProvider === "chatgpt" && providerStatus && !providerStatus.providers.chatgpt && (
+                <p className="setup-hint">
+                  はじめに、ChatGPTのアカウントでログインしてください。
+                  <button type="button" className="text-button" onClick={() => setSettingsOpen(true)}><Icon name="key" />設定でログイン</button>
                 </p>
               )}
               {(shortcuts["translate-page"] || shortcuts["toggle-page-pick"]) && (
@@ -1832,9 +1902,9 @@ export function SidePanel() {
             <span className="consent-icon" aria-hidden="true"><Icon name="shield" /></span>
             <p className="eyebrow">Data use</p>
             <h2 id="consent-title">文章を外部サービスへ送信します</h2>
-            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepLまたはClaude）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。Claudeには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）、辞書のうち翻訳する文章に出てくる用語も送ります。辞書をAIで作る・直すときは、書いた内容と、対象の文章（選んだ場合は開いているページの本文）をClaudeへ送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepLやClaudeには送りません。選択範囲翻訳では、選んだ文章がDeepLまたはClaudeにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーも認証のため各サービスへ送信します。</p>
-            <p>送信先はTypeSafe Jev、DeepL、Claude（Anthropic）です。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
-            <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a> · <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">Anthropicのプライバシー情報</a></p>
+            <p id="consent-description">ページを翻訳すると、このページから抽出した文章とページタイトルがTypeSafe Jevに送られ、翻訳対象として選ばれた文章が、設定で選んだ翻訳サービス（DeepL、Claude、ChatGPTのいずれか）に送られます（設定でJevを使わない場合は、抽出した文章を翻訳サービスにだけ送ります）。ClaudeとChatGPTには、ページタイトルと、文脈としてページの本文の一部（最大4,000文字）、辞書のうち翻訳する文章に出てくる用語も送ります。辞書をAIで作る・直すときは、書いた内容と、対象の文章（選んだ場合は開いているページの本文）をClaudeへ送ります。翻訳サービスが「Chrome内蔵」のときは、翻訳はこの端末の中で行い、DeepL、Claude、ChatGPTには送りません。選択範囲翻訳では、選んだ文章が選んだ翻訳サービスにだけ送られます（Chrome内蔵では送りません）。英作文チェックでは、入力した英文と日本語、文脈として使う場合はページのタイトルと本文がDeepLに送られます。APIキーやChatGPTのログイン情報も、認証のため各サービスへ送信します。</p>
+            <p>送信先はTypeSafe Jev、DeepL、Claude（Anthropic）、ChatGPT（OpenAI）です。Page Translateの開発者が運営するサーバーには送信しません。個人情報や機密情報を含む文章を翻訳する場合は、利用するAPIプランの条件を確認してください。</p>
+            <p className="provider-policy-links"><a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noreferrer">TypeSafeのプライバシー情報</a> · <a href="https://www.deepl.com/en/privacy" target="_blank" rel="noreferrer">DeepLのプライバシー情報</a> · <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">Anthropicのプライバシー情報</a> · <a href="https://openai.com/policies/privacy-policy/" target="_blank" rel="noreferrer">OpenAIのプライバシー情報</a></p>
             <div className="consent-actions">
               <button className="button secondary" type="button" onClick={() => void answerConsent(false)}>キャンセル</button>
               <button className="button primary" type="button" onClick={() => void answerConsent(true)}>同意して続ける</button>
@@ -1882,7 +1952,7 @@ function privacySummary(settings: ExtensionSettings): string {
   if (settings.translationProvider === "chrome") {
     return settings.useJev ? "翻訳時は本文候補をJevへ送信。翻訳はこの端末の中で行います" : "翻訳はこの端末の中で行い、外部へは送信しません";
   }
-  const translator = settings.translationProvider === "claude" ? "Claude" : "DeepL";
+  const translator = settings.translationProvider === "claude" ? "Claude" : settings.translationProvider === "chatgpt" ? "ChatGPT" : "DeepL";
   return settings.useJev ? `翻訳時は本文候補をJevへ、選ばれた文章を${translator}へ送信` : `翻訳時は本文を${translator}へ送信（Jevは不使用）`;
 }
 

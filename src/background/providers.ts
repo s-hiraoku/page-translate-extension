@@ -1,6 +1,7 @@
 import type { CandidateSegment, ComposeLanguage, DeepLPlan, Decision, EnglishVariant, TargetLanguage, WritingStyle } from "../shared/types";
 import { PROVIDER_KEYS_KEY, SETTINGS_KEY, DEFAULT_SETTINGS, resolveDeepLPlan, type ExtensionSettings, type ProviderKeys, type ProviderStatus } from "../shared/types";
-import { type ClaudeAccess, buildDictionaryWithClaude, consultDictionaryWithClaude, fixDictionaryWithClaude, translateSegmentsWithClaude, translateTextWithClaude } from "./claude";
+import { type ClaudeAccess, type Translator, buildDictionaryWithClaude, claudeTranslator, consultDictionaryWithClaude, fixDictionaryWithClaude, translateSegmentsWith, translateTextWith } from "./claude";
+import { chatgptAccount, chatgptTranslator } from "./chatgpt";
 import { GLOSSARY_KEY } from "../shared/glossary";
 import { isEmptyDictionary, parseDictionary, type Dictionary, type DictionaryChanges, type DictionaryTurn } from "../shared/dictionary";
 
@@ -11,10 +12,11 @@ const EMPTY_KEYS: ProviderKeys = { typesafeApiKey: "", deeplApiKey: "", anthropi
 const KEY_NAMES = Object.keys(EMPTY_KEYS) as Array<keyof ProviderKeys>;
 
 export async function providerStatus(): Promise<ProviderStatus> {
-  const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
+  const [keys, settings, chatgpt] = await Promise.all([readProviderKeys(), readSettings(), chatgptAccount()]);
   return {
-    providers: { jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey), claude: Boolean(keys.anthropicApiKey) },
+    providers: { jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey), claude: Boolean(keys.anthropicApiKey), chatgpt: Boolean(chatgpt) },
     deeplPlan: keys.deeplApiKey ? resolveDeepLPlan(settings.deeplEndpoint, keys.deeplApiKey) : null,
+    chatgpt,
   };
 }
 
@@ -37,9 +39,12 @@ export async function clearProviderKeys(): Promise<ProviderStatus> {
  * What to tell the reader when page translation (with Jev) lacks a key. The translator's key comes
  * first; Jev only picks the text and can be turned off. `translator` is the service that needs a key.
  */
-export function missingKeyMessage(registered: { jev: boolean; deepl: boolean; claude?: boolean }, translator: "deepl" | "claude" | null = "deepl"): string | null {
+export function missingKeyMessage(registered: { jev: boolean; deepl: boolean; claude?: boolean; chatgpt?: boolean }, translator: "deepl" | "claude" | "chatgpt" | null = "deepl"): string | null {
   if (translator === "claude" && !registered.claude) {
     return "設定画面でClaudeのAPIキーを登録してください。Claudeで翻訳するにはキーが必要です。";
+  }
+  if (translator === "chatgpt" && !registered.chatgpt) {
+    return "設定画面で「ChatGPTでログイン」を押してください。ChatGPTで翻訳するにはログインが必要です。";
   }
   if (translator !== "deepl") {
     return registered.jev ? null : "TypeSafe JevのAPIキーが未登録です。設定画面で登録するか、「翻訳する本文の判定」で「Jevを使わない」を選んでください。";
@@ -61,10 +66,10 @@ export async function classifyCandidates(
   pageTitle = "",
   pageInfo: { mainContentDetected: boolean; articleTitle: string } = { mainContentDetected: false, articleTitle: "" },
 ): Promise<DecisionResult> {
-  const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
+  const [keys, settings, chatgpt] = await Promise.all([readProviderKeys(), readSettings(), chatgptAccount()]);
   // With Chrome's built-in translator, no translator key is needed.
   const translator = settings.translationProvider === "chrome" ? null : settings.translationProvider;
-  const missing = missingKeyMessage({ jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey), claude: Boolean(keys.anthropicApiKey) }, translator);
+  const missing = missingKeyMessage({ jev: Boolean(keys.typesafeApiKey), deepl: Boolean(keys.deeplApiKey), claude: Boolean(keys.anthropicApiKey), chatgpt: Boolean(chatgpt) }, translator);
   if (missing) throw new Error(missing);
   const { typesafeApiKey } = keys;
   validateSegments(segments);
@@ -153,7 +158,11 @@ export async function translateSegments(
   pageText?: string,
 ): Promise<TranslationResult> {
   const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
-  if (settings.translationProvider === "claude") return translateSegmentsByClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, segments, targetLanguage, pageTitle, pageText);
+  if (settings.translationProvider === "claude") {
+    if (!keys.anthropicApiKey) throw new Error("設定画面でClaudeのAPIキーを登録してください。");
+    return translateSegmentsByModel(claudeTranslator({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }), segments, targetLanguage, pageTitle, pageText);
+  }
+  if (settings.translationProvider === "chatgpt") return translateSegmentsByModel(await chatgptTranslator(settings.chatgptModel), segments, targetLanguage, pageTitle, pageText);
   const { key, host } = await deeplAccess();
   validateSegments(segments);
   const translations: TranslationResult["translations"] = [];
@@ -184,28 +193,33 @@ export async function translateSegments(
   return { translations };
 }
 
-async function translateSegmentsByClaude(
-  access: ClaudeAccess,
+/** Claude or ChatGPT: the model reads the page's title and text along with the passages. */
+async function translateSegmentsByModel(
+  translator: Translator,
   segments: CandidateSegment[],
   targetLanguage: TargetLanguage,
   pageTitle: string,
   pageText?: string,
 ): Promise<TranslationResult> {
-  if (!access.apiKey) throw new Error("設定画面でClaudeのAPIキーを登録してください。");
   validateSegments(segments);
   // Without the page's text from the panel, the passages themselves, in reading order, are the page.
   const context = pageText ?? [...segments].sort((a, b) => a.order - b.order).map((segment) => segment.sourceText).join("\n");
-  const html = await translateSegmentsWithClaude(access, segments, targetLanguage, { pageTitle, pageText: context }, await readDictionary(true));
+  const html = await translateSegmentsWith(translator, segments, targetLanguage, { pageTitle, pageText: context }, await readDictionary(true));
   return { translations: segments.map((segment, index) => ({ id: segment.id, translatedHtml: html[index] ?? "", translatedText: htmlToText(html[index] ?? "") })) };
 }
 
-/** A selection, with whichever service translates pages over the network (Claude or DeepL). */
+/** A selection, with whichever service translates pages over the network (Claude, ChatGPT or DeepL). */
 export async function translateSelectionText(text: string, targetLang: ComposeLanguage): Promise<{ text: string }> {
   const [keys, settings] = await Promise.all([readProviderKeys(), readSettings()]);
+  if (settings.translationProvider === "chatgpt") {
+    const translator = await chatgptTranslator(settings.chatgptModel);
+    validateComposeText(text);
+    return { text: await translateTextWith(translator, text, targetLang, await readDictionary(true)) };
+  }
   if (settings.translationProvider !== "claude") return translateText(text, targetLang);
   if (!keys.anthropicApiKey) throw new Error("設定画面でClaudeのAPIキーを登録してください。");
   validateComposeText(text);
-  return { text: await translateTextWithClaude({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }, text, targetLang, await readDictionary(true)) };
+  return { text: await translateTextWith(claudeTranslator({ apiKey: keys.anthropicApiKey, model: settings.claudeModel }), text, targetLang, await readDictionary(true)) };
 }
 
 /** Claude's next message in the consultation about the dictionary (with the open page, when given). */
